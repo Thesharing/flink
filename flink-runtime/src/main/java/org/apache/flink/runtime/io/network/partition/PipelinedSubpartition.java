@@ -59,14 +59,14 @@ class PipelinedSubpartition extends ResultSubpartition {
 	// ------------------------------------------------------------------------
 
 	/** All buffers of this subpartition. Access to the buffers is synchronized on this object. */
-	private final ArrayDeque<BufferConsumer> buffers = new ArrayDeque<>();
+	protected final ArrayDeque<BufferConsumer> buffers = new ArrayDeque<>();
 
 	/** The number of non-event buffers currently in this subpartition. */
 	@GuardedBy("buffers")
 	private int buffersInBacklog;
 
 	/** The read view to consume this subpartition. */
-	private PipelinedSubpartitionView readView;
+	PipelinedSubpartitionView readView;
 
 	/** Flag indicating whether the subpartition has been finished. */
 	private boolean isFinished;
@@ -379,7 +379,7 @@ class PipelinedSubpartition extends ResultSubpartition {
 		return readView != null && !flushRequested && getNumberOfFinishedBuffers() == 1;
 	}
 
-	private void notifyDataAvailable() {
+	protected void notifyDataAvailable() {
 		if (readView != null) {
 			readView.notifyDataAvailable();
 		}

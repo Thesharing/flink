@@ -32,12 +32,12 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 class PipelinedSubpartitionView implements ResultSubpartitionView {
 
 	/** The subpartition this view belongs to. */
-	private final PipelinedSubpartition parent;
+	protected final PipelinedSubpartition parent;
 
 	private final BufferAvailabilityListener availabilityListener;
 
 	/** Flag indicating whether this view has been released. */
-	private final AtomicBoolean isReleased;
+	protected final AtomicBoolean isReleased;
 
 	PipelinedSubpartitionView(PipelinedSubpartition parent, BufferAvailabilityListener listener) {
 		this.parent = checkNotNull(parent);

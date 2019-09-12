@@ -44,19 +44,19 @@ public class ResultPartitionFactory {
 
 	private static final Logger LOG = LoggerFactory.getLogger(ResultPartitionFactory.class);
 
-	private final ResultPartitionManager partitionManager;
+	protected final ResultPartitionManager partitionManager;
 
-	private final FileChannelManager channelManager;
+	final FileChannelManager channelManager;
 
 	private final BufferPoolFactory bufferPoolFactory;
 
-	private final BoundedBlockingSubpartitionType blockingSubpartitionType;
+	final BoundedBlockingSubpartitionType blockingSubpartitionType;
 
 	private final int networkBuffersPerChannel;
 
 	private final int floatingNetworkBuffersPerGate;
 
-	private final int networkBufferSize;
+	final int networkBufferSize;
 
 	private final boolean forcePartitionReleaseOnConsumption;
 
@@ -127,7 +127,7 @@ public class ResultPartitionFactory {
 		return partition;
 	}
 
-	private void createSubpartitions(
+	void createSubpartitions(
 			ResultPartition partition,
 			ResultPartitionType type,
 			BoundedBlockingSubpartitionType blockingSubpartitionType,
@@ -147,7 +147,7 @@ public class ResultPartitionFactory {
 		}
 	}
 
-	private static void initializeBoundedBlockingPartitions(
+	static void initializeBoundedBlockingPartitions(
 			ResultSubpartition[] subpartitions,
 			ResultPartition parent,
 			BoundedBlockingSubpartitionType blockingSubpartitionType,
