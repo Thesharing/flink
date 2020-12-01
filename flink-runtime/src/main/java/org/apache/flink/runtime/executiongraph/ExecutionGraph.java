@@ -318,6 +318,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	private final ExecutionDeploymentListener executionDeploymentListener;
 	private final ExecutionStateUpdateListener executionStateUpdateListener;
 
+	private final ExecutionEdgeManager edgeManager;
+
 	// --------------------------------------------------------------------------------------------
 	//   Constructors
 	// --------------------------------------------------------------------------------------------
@@ -402,6 +404,8 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 		this.executionDeploymentListener = executionDeploymentListener;
 		this.executionStateUpdateListener = executionStateUpdateListener;
+
+		this.edgeManager = new ExecutionEdgeManager();
 	}
 
 	public void start(@Nonnull ComponentMainThreadExecutor jobMasterMainThreadExecutor) {
@@ -426,6 +430,10 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	public ScheduleMode getScheduleMode() {
 		return scheduleMode;
+	}
+
+	public ExecutionEdgeManager getEdgeManager() {
+		return edgeManager;
 	}
 
 	public Time getAllocationTimeout() {

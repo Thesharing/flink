@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.scheduler.adapter;
 
-import org.apache.flink.runtime.executiongraph.ExecutionEdge;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
@@ -190,9 +189,8 @@ public class DefaultExecutionTopologyTest extends TestLogger {
 			assertVertexEquals(originalVertex, adaptedVertex);
 
 			List<IntermediateResultPartition> originalConsumedPartitions = IntStream.range(0, originalVertex.getNumberOfInputs())
-				.mapToObj(originalVertex::getInputEdges)
+				.mapToObj(originalVertex::getConsumedPartitions)
 				.flatMap(Arrays::stream)
-				.map(ExecutionEdge::getSource)
 				.collect(Collectors.toList());
 			Iterable<DefaultResultPartition> adaptedConsumedPartitions = adaptedVertex.getConsumedResults();
 
@@ -221,10 +219,7 @@ public class DefaultExecutionTopologyTest extends TestLogger {
 
 			assertPartitionEquals(originalPartition, adaptedPartition);
 
-			List<ExecutionVertex> originalConsumers = originalPartition.getConsumers().stream()
-				.flatMap(Collection::stream)
-				.map(ExecutionEdge::getTarget)
-				.collect(Collectors.toList());
+			List<ExecutionVertex> originalConsumers = originalPartition.getConsumers();
 			Iterable<DefaultExecutionVertex> adaptedConsumers = adaptedPartition.getConsumers();
 
 			for (ExecutionVertex originalConsumer : originalConsumers) {

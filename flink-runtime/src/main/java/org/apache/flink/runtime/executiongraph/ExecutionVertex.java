@@ -78,8 +78,6 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 	private final Map<IntermediateResultPartitionID, IntermediateResultPartition> resultPartitions;
 
-	private final ExecutionEdge[][] inputEdges;
-
 	private final int subTaskIndex;
 
 	private final ExecutionVertexID executionVertexId;
@@ -135,8 +133,6 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 			resultPartitions.put(irp.getPartitionId(), irp);
 		}
-
-		this.inputEdges = new ExecutionEdge[jobVertex.getJobVertex().getInputs().size()][];
 
 		this.priorExecutions = new EvictingBoundedList<>(maxPriorExecutionHistoryLength);
 
@@ -205,6 +201,10 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		return this.jobVertex.getMaxParallelism();
 	}
 
+	public int getParallelism() {
+		return this.jobVertex.getParallelism();
+	}
+
 	public ResourceProfile getResourceProfile() {
 		return this.jobVertex.getResourceProfile();
 	}
@@ -219,18 +219,21 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	}
 
 	public int getNumberOfInputs() {
-		return this.inputEdges.length;
+		return getAllConsumedPartitions().size();
 	}
 
-	public ExecutionEdge[] getInputEdges(int input) {
-		if (input < 0 || input >= inputEdges.length) {
-			throw new IllegalArgumentException(String.format("Input %d is out of range [0..%d)", input, inputEdges.length));
+	public List<IntermediateResultPartition[]> getAllConsumedPartitions() {
+		return getExecutionGraph().getEdgeManager().getVertexAllConsumedPartitions(executionVertexId);
+	}
+
+	public IntermediateResultPartition[] getConsumedPartitions(int input) {
+		final List<IntermediateResultPartition[]> allConsumedPartitions = getAllConsumedPartitions();
+
+		if (input < 0 || input >= allConsumedPartitions.size()) {
+			throw new IllegalArgumentException(String.format("Input %d is out of range [0..%d)", input, allConsumedPartitions.size()));
 		}
-		return inputEdges[input];
-	}
 
-	public ExecutionEdge[][] getAllInputEdges() {
-		return inputEdges;
+		return allConsumedPartitions.get(input);
 	}
 
 	public CoLocationConstraint getLocationConstraint() {
@@ -347,55 +350,48 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	//  Graph building
 	// --------------------------------------------------------------------------------------------
 
-	public void connectSource(int inputNumber, IntermediateResult source, JobEdge edge, int consumerNumber) {
+	public void connectSource(int inputNumber, IntermediateResult source, JobEdge edge) {
 
 		final DistributionPattern pattern = edge.getDistributionPattern();
 		final IntermediateResultPartition[] sourcePartitions = source.getPartitions();
 
-		ExecutionEdge[] edges;
-
 		switch (pattern) {
 			case POINTWISE:
-				edges = connectPointwise(sourcePartitions, inputNumber);
+				IntermediateResultPartition[] consumedPartitions =
+					getConsumedPartitionsPointwise(sourcePartitions);
+				connectToPartitions(consumedPartitions, inputNumber);
 				break;
 
 			case ALL_TO_ALL:
-				edges = connectAllToAll(sourcePartitions, inputNumber);
+				// consumedPartitions == sourcePartitions
+				connectToPartitions(sourcePartitions, inputNumber);
 				break;
 
 			default:
 				throw new RuntimeException("Unrecognized distribution pattern.");
 
 		}
+	}
 
-		inputEdges[inputNumber] = edges;
+	private void connectToPartitions(IntermediateResultPartition[] sourcePartitions, int inputNumber) {
 
-		// add the consumers to the source
-		// for now (until the receiver initiated handshake is in place), we need to register the
-		// edges as the execution graph
-		for (ExecutionEdge ee : edges) {
-			ee.getSource().addConsumer(ee, consumerNumber);
+		setConsumedPartitions(sourcePartitions, inputNumber);
+
+		for (IntermediateResultPartition partition: sourcePartitions) {
+			partition.setConsumer(this);
 		}
 	}
 
-	private ExecutionEdge[] connectAllToAll(IntermediateResultPartition[] sourcePartitions, int inputNumber) {
-		ExecutionEdge[] edges = new ExecutionEdge[sourcePartitions.length];
+	private IntermediateResultPartition[] getConsumedPartitionsPointwise(
+		IntermediateResultPartition[] sourcePartitions) {
 
-		for (int i = 0; i < sourcePartitions.length; i++) {
-			IntermediateResultPartition irp = sourcePartitions[i];
-			edges[i] = new ExecutionEdge(irp, this, inputNumber);
-		}
-
-		return edges;
-	}
-
-	private ExecutionEdge[] connectPointwise(IntermediateResultPartition[] sourcePartitions, int inputNumber) {
+		// Get the source partition of execution vertex
 		final int numSources = sourcePartitions.length;
 		final int parallelism = getTotalNumberOfParallelSubtasks();
 
 		// simple case same number of sources as targets
 		if (numSources == parallelism) {
-			return new ExecutionEdge[] { new ExecutionEdge(sourcePartitions[subTaskIndex], this, inputNumber) };
+			return new IntermediateResultPartition[]{sourcePartitions[subTaskIndex]};
 		}
 		else if (numSources < parallelism) {
 
@@ -414,7 +410,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 				sourcePartition = (int) (subTaskIndex / factor);
 			}
 
-			return new ExecutionEdge[] { new ExecutionEdge(sourcePartitions[sourcePartition], this, inputNumber) };
+			return new IntermediateResultPartition[]{sourcePartitions[sourcePartition]};
 		}
 		else {
 			if (numSources % parallelism == 0) {
@@ -422,11 +418,9 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 				int factor = numSources / parallelism;
 				int startIndex = subTaskIndex * factor;
 
-				ExecutionEdge[] edges = new ExecutionEdge[factor];
-				for (int i = 0; i < factor; i++) {
-					edges[i] = new ExecutionEdge(sourcePartitions[startIndex + i], this, inputNumber);
-				}
-				return edges;
+				IntermediateResultPartition[] consumedPartitions = new IntermediateResultPartition[factor];
+				System.arraycopy(sourcePartitions, startIndex, consumedPartitions, 0, factor);
+				return consumedPartitions;
 			}
 			else {
 				float factor = ((float) numSources) / parallelism;
@@ -436,14 +430,27 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 						sourcePartitions.length :
 						(int) ((subTaskIndex + 1) * factor);
 
-				ExecutionEdge[] edges = new ExecutionEdge[end - start];
-				for (int i = 0; i < edges.length; i++) {
-					edges[i] = new ExecutionEdge(sourcePartitions[start + i], this, inputNumber);
-				}
-
-				return edges;
+				IntermediateResultPartition[] consumedPartitions =
+					new IntermediateResultPartition[end - start];
+				System.arraycopy(
+					sourcePartitions,
+					start,
+					consumedPartitions,
+					0,
+					consumedPartitions.length);
+				return consumedPartitions;
 			}
 		}
+	}
+
+	public void setConsumedPartitions(
+		IntermediateResultPartition[] consumedPartitions,
+		int inputNum) {
+
+		getExecutionGraph().getEdgeManager().setVertexConsumedPartitions(
+			executionVertexId,
+			consumedPartitions,
+			inputNum);
 	}
 
 	/**
@@ -514,8 +521,10 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	 *         if there is no input-based preference.
 	 */
 	public Collection<CompletableFuture<TaskManagerLocation>> getPreferredLocationsBasedOnInputs() {
+		final List<IntermediateResultPartition[]> allConsumedPartitions = getAllConsumedPartitions();
+
 		// otherwise, base the preferred locations on the input connections
-		if (inputEdges == null) {
+		if (allConsumedPartitions == null) {
 			return Collections.emptySet();
 		}
 		else {
@@ -523,14 +532,14 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 			Set<CompletableFuture<TaskManagerLocation>> inputLocations = new HashSet<>(getTotalNumberOfParallelSubtasks());
 
 			// go over all inputs
-			for (int i = 0; i < inputEdges.length; i++) {
+			for (IntermediateResultPartition[] sources : allConsumedPartitions) {
 				inputLocations.clear();
-				ExecutionEdge[] sources = inputEdges[i];
 				if (sources != null) {
 					// go over all input sources
-					for (int k = 0; k < sources.length; k++) {
+					for (IntermediateResultPartition source : sources) {
 						// look-up assigned slot of input source
-						CompletableFuture<TaskManagerLocation> locationFuture = sources[k].getSource().getProducer().getCurrentTaskManagerLocationFuture();
+						CompletableFuture<TaskManagerLocation> locationFuture =
+							source.getProducer().getCurrentTaskManagerLocationFuture();
 						// add input location
 						inputLocations.add(locationFuture);
 						// inputs which have too many distinct sources are not considered
@@ -749,7 +758,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 
 		if (partition.getIntermediateResult().getResultType().isPipelined()) {
 			// Schedule or update receivers of this partition
-			execution.scheduleOrUpdateConsumers(partition.getConsumers());
+			execution.scheduleOrUpdateConsumers(partition, partition.getConsumers());
 		}
 		else {
 			throw new IllegalArgumentException("ScheduleOrUpdateConsumers msg is only valid for" +
@@ -791,7 +800,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	 * @return whether the input constraint is satisfied
 	 */
 	boolean checkInputDependencyConstraints() {
-		if (inputEdges.length == 0) {
+		if (getNumberOfInputs() == 0) {
 			return true;
 		}
 
@@ -807,7 +816,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	}
 
 	private boolean isAnyInputConsumable() {
-		for (int inputNumber = 0; inputNumber < inputEdges.length; inputNumber++) {
+		for (int inputNumber = 0; inputNumber < getNumberOfInputs(); inputNumber++) {
 			if (isInputConsumable(inputNumber)) {
 				return true;
 			}
@@ -816,7 +825,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	}
 
 	private boolean areAllInputsConsumable() {
-		for (int inputNumber = 0; inputNumber < inputEdges.length; inputNumber++) {
+		for (int inputNumber = 0; inputNumber < getNumberOfInputs(); inputNumber++) {
 			if (!isInputConsumable(inputNumber)) {
 				return false;
 			}
@@ -833,8 +842,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	 * @return whether the input is consumable
 	 */
 	boolean isInputConsumable(int inputNumber) {
-		for (ExecutionEdge executionEdge : inputEdges[inputNumber]) {
-			if (executionEdge.getSource().isConsumable()) {
+		for (IntermediateResultPartition source: getConsumedPartitions(inputNumber)) {
+			if (source.isConsumable()) {
 				return true;
 			}
 		}
