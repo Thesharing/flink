@@ -21,7 +21,6 @@ package org.apache.flink.runtime.executiongraph;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class IntermediateResultPartition {
@@ -34,8 +33,6 @@ public class IntermediateResultPartition {
 
 	private final IntermediateResultPartitionID partitionId;
 
-	private List<List<ExecutionEdge>> consumers;
-
 	/**
 	 * Whether this partition has produced some data.
 	 */
@@ -45,7 +42,6 @@ public class IntermediateResultPartition {
 		this.totalResult = totalResult;
 		this.producer = producer;
 		this.partitionNumber = partitionNumber;
-		this.consumers = new ArrayList<List<ExecutionEdge>>(0);
 		this.partitionId = new IntermediateResultPartitionID(totalResult.getId(), partitionNumber);
 	}
 
@@ -69,8 +65,8 @@ public class IntermediateResultPartition {
 		return totalResult.getResultType();
 	}
 
-	public List<List<ExecutionEdge>> getConsumers() {
-		return consumers;
+	public List<ExecutionVertex> getConsumers() {
+		return getEdgeManager().getPartitionConsumers(partitionId);
 	}
 
 	public void markDataProduced() {
@@ -94,20 +90,12 @@ public class IntermediateResultPartition {
 		hasDataProduced = false;
 	}
 
-	int addConsumerGroup() {
-		int pos = consumers.size();
-
-		// NOTE: currently we support only one consumer per result!!!
-		if (pos != 0) {
-			throw new RuntimeException("Currently, each intermediate result can only have one consumer.");
-		}
-
-		consumers.add(new ArrayList<ExecutionEdge>());
-		return pos;
+	public void setConsumer(ExecutionVertex ev) {
+		producer.getExecutionGraph().getEdgeManager().setPartitionConsumer(partitionId, ev);
 	}
 
-	void addConsumer(ExecutionEdge edge, int consumerNumber) {
-		consumers.get(consumerNumber).add(edge);
+	ExecutionEdgeManager getEdgeManager() {
+		return producer.getExecutionGraph().getEdgeManager();
 	}
 
 	boolean markFinished() {

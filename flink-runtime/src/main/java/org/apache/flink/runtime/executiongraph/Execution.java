@@ -474,12 +474,9 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	}
 
 	private static int getPartitionMaxParallelism(IntermediateResultPartition partition) {
-		final List<List<ExecutionEdge>> consumers = partition.getConsumers();
+		final List<ExecutionVertex> consumers = partition.getConsumers();
 		Preconditions.checkArgument(!consumers.isEmpty(), "Currently there has to be exactly one consumer in real jobs");
-		List<ExecutionEdge> consumer = consumers.get(0);
-		ExecutionJobVertex consumerVertex = consumer.get(0).getTarget().getJobVertex();
-		int maxParallelism = consumerVertex.getMaxParallelism();
-		return maxParallelism;
+		return consumers.get(0).getJobVertex().getMaxParallelism();
 	}
 
 	/**
@@ -692,15 +689,19 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 		return releaseFuture;
 	}
 
-	void scheduleOrUpdateConsumers(List<List<ExecutionEdge>> allConsumers) {
+	void scheduleOrUpdateConsumers(
+		IntermediateResultPartition partition,
+		List<ExecutionVertex> allConsumers) {
+
 		assertRunningInJobMasterMainThread();
 
 		final HashSet<ExecutionVertex> consumerDeduplicator = new HashSet<>();
-		scheduleOrUpdateConsumers(allConsumers, consumerDeduplicator);
+		scheduleOrUpdateConsumers(partition, allConsumers, consumerDeduplicator);
 	}
 
 	private void scheduleOrUpdateConsumers(
-			final List<List<ExecutionEdge>> allConsumers,
+			final IntermediateResultPartition partition,
+			final List<ExecutionVertex> allConsumers,
 			final HashSet<ExecutionVertex> consumerDeduplicator) {
 
 		if (allConsumers.size() == 0) {
@@ -711,8 +712,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 			return;
 		}
 
-		for (ExecutionEdge edge : allConsumers.get(0)) {
-			final ExecutionVertex consumerVertex = edge.getTarget();
+		for (ExecutionVertex consumerVertex: allConsumers) {
 			final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
 			final ExecutionState consumerState = consumer.getState();
 
@@ -722,7 +722,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 			// sent after switching to running
 			// ----------------------------------------------------------------
 			if (consumerState == DEPLOYING || consumerState == RUNNING) {
-				final PartitionInfo partitionInfo = createPartitionInfo(edge);
+				final PartitionInfo partitionInfo = createPartitionInfo(partition);
 
 				if (consumerState == DEPLOYING) {
 					consumerVertex.cachePartitionInfo(partitionInfo);
@@ -733,9 +733,9 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 		}
 	}
 
-	private static PartitionInfo createPartitionInfo(ExecutionEdge executionEdge) {
-		IntermediateDataSetID intermediateDataSetID = executionEdge.getSource().getIntermediateResult().getId();
-		ShuffleDescriptor shuffleDescriptor = getConsumedPartitionShuffleDescriptor(executionEdge, false);
+	private static PartitionInfo createPartitionInfo(IntermediateResultPartition consumedPartition) {
+		IntermediateDataSetID intermediateDataSetID = consumedPartition.getIntermediateResult().getId();
+		ShuffleDescriptor shuffleDescriptor = getConsumedPartitionShuffleDescriptor(consumedPartition, false);
 		return new PartitionInfo(intermediateDataSetID, shuffleDescriptor);
 	}
 
@@ -953,7 +953,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 					finishedPartition.getIntermediateResult().getPartitions();
 
 			for (IntermediateResultPartition partition : allPartitionsOfNewlyFinishedResults) {
-				scheduleOrUpdateConsumers(partition.getConsumers(), consumerDeduplicator);
+				scheduleOrUpdateConsumers(partition, partition.getConsumers(), consumerDeduplicator);
 			}
 		}
 	}

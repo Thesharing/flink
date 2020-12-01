@@ -50,8 +50,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 public class ExecutionVertexDeploymentTest extends TestLogger {
 
@@ -276,10 +274,7 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
 			TaskDeploymentDescriptorFactory tddFactory =
 				TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, 1);
 
-			ExecutionEdge mockEdge = createMockExecutionEdge(1);
-
-			result.getPartitions()[0].addConsumerGroup();
-			result.getPartitions()[0].addConsumer(mockEdge, 0);
+			result.getPartitions()[0].setConsumer(vertex);
 
 			TaskManagerLocation location =
 				new TaskManagerLocation(ResourceID.generate(), InetAddress.getLoopbackAddress(), 1);
@@ -296,17 +291,5 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
 			ResultPartitionDeploymentDescriptor desc = producedPartitions.iterator().next();
 			assertEquals(scheduleMode.allowLazyDeployment(), desc.sendScheduleOrUpdateConsumersMessage());
 		}
-	}
-
-	private ExecutionEdge createMockExecutionEdge(int maxParallelism) {
-		ExecutionVertex targetVertex = mock(ExecutionVertex.class);
-		ExecutionJobVertex targetJobVertex = mock(ExecutionJobVertex.class);
-
-		when(targetVertex.getJobVertex()).thenReturn(targetJobVertex);
-		when(targetJobVertex.getMaxParallelism()).thenReturn(maxParallelism);
-
-		ExecutionEdge edge = mock(ExecutionEdge.class);
-		when(edge.getTarget()).thenReturn(targetVertex);
-		return edge;
 	}
 }

@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.scheduler.adapter;
 
-import org.apache.flink.runtime.executiongraph.ExecutionEdge;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
@@ -201,9 +200,9 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 			final DefaultExecutionVertex schedulingVertex = mapEntry.getValue();
 			final ExecutionVertex executionVertex = mapEntry.getKey();
 
-			for (int index = 0; index < executionVertex.getNumberOfInputs(); index++) {
-				for (ExecutionEdge edge : executionVertex.getInputEdges(index)) {
-					DefaultResultPartition partition = resultPartitions.get(edge.getSource().getPartitionId());
+			for (IntermediateResultPartition[] consumedPartitions : executionVertex.getAllConsumedPartitions()) {
+				for (IntermediateResultPartition consumedPartition : consumedPartitions) {
+					DefaultResultPartition partition = resultPartitions.get(consumedPartition.getPartitionId());
 					schedulingVertex.addConsumedResult(partition);
 					partition.addConsumer(schedulingVertex);
 				}

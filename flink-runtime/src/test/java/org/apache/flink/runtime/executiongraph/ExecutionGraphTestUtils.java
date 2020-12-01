@@ -523,13 +523,12 @@ public class ExecutionGraphTestUtils {
 				assertEquals(inputJobVertices.size(), ev.getNumberOfInputs());
 
 				for (int i = 0; i < inputJobVertices.size(); i++) {
-					ExecutionEdge[] inputEdges = ev.getInputEdges(i);
-					assertEquals(inputJobVertices.get(i).getParallelism(), inputEdges.length);
+					IntermediateResultPartition[] consumedPartitions = ev.getConsumedPartitions(i);
+					assertEquals(inputJobVertices.get(i).getParallelism(), consumedPartitions.length);
 
 					int expectedPartitionNum = 0;
-					for (ExecutionEdge inEdge : inputEdges) {
-						assertEquals(i, inEdge.getInputNum());
-						assertEquals(expectedPartitionNum, inEdge.getSource().getPartitionNumber());
+					for (IntermediateResultPartition consumedPartition : consumedPartitions) {
+						assertEquals(expectedPartitionNum, consumedPartition.getPartitionNumber());
 
 						expectedPartitionNum++;
 					}

@@ -27,7 +27,6 @@ import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor.MaybeOffload
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.runtime.executiongraph.ExecutionEdge;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
@@ -61,7 +60,7 @@ public class TaskDeploymentDescriptorFactory {
 	private final JobID jobID;
 	private final boolean allowUnknownPartitions;
 	private final int subtaskIndex;
-	private final ExecutionEdge[][] inputEdges;
+	private final List<IntermediateResultPartition[]> consumedPartitions;
 
 	private TaskDeploymentDescriptorFactory(
 			ExecutionAttemptID executionId,
@@ -71,7 +70,7 @@ public class TaskDeploymentDescriptorFactory {
 			JobID jobID,
 			boolean allowUnknownPartitions,
 			int subtaskIndex,
-			ExecutionEdge[][] inputEdges) {
+			List<IntermediateResultPartition[]> consumedPartitions) {
 		this.executionId = executionId;
 		this.attemptNumber = attemptNumber;
 		this.serializedJobInformation = serializedJobInformation;
@@ -79,7 +78,7 @@ public class TaskDeploymentDescriptorFactory {
 		this.jobID = jobID;
 		this.allowUnknownPartitions = allowUnknownPartitions;
 		this.subtaskIndex = subtaskIndex;
-		this.inputEdges = inputEdges;
+		this.consumedPartitions = consumedPartitions;
 	}
 
 	public TaskDeploymentDescriptor createDeploymentDescriptor(
@@ -102,17 +101,17 @@ public class TaskDeploymentDescriptorFactory {
 	}
 
 	private List<InputGateDeploymentDescriptor> createInputGateDeploymentDescriptors() {
-		List<InputGateDeploymentDescriptor> inputGates = new ArrayList<>(inputEdges.length);
+		List<InputGateDeploymentDescriptor> inputGates = new ArrayList<>(consumedPartitions.size());
 
-		for (ExecutionEdge[] edges : inputEdges) {
+		for (IntermediateResultPartition[] partitions: consumedPartitions) {
 			// If the produced partition has multiple consumers registered, we
 			// need to request the one matching our sub task index.
 			// TODO Refactor after removing the consumers from the intermediate result partitions
-			int numConsumerEdges = edges[0].getSource().getConsumers().get(0).size();
+			int numConsumer = partitions[0].getConsumers().size();
 
-			int queueToRequest = subtaskIndex % numConsumerEdges;
+			int queueToRequest = subtaskIndex % numConsumer;
 
-			IntermediateResult consumedIntermediateResult = edges[0].getSource().getIntermediateResult();
+			IntermediateResult consumedIntermediateResult = partitions[0].getIntermediateResult();
 			IntermediateDataSetID resultId = consumedIntermediateResult.getId();
 			ResultPartitionType partitionType = consumedIntermediateResult.getResultType();
 
@@ -120,18 +119,20 @@ public class TaskDeploymentDescriptorFactory {
 				resultId,
 				partitionType,
 				queueToRequest,
-				getConsumedPartitionShuffleDescriptors(edges)));
+				getConsumedPartitionShuffleDescriptors(partitions)));
 		}
 
 		return inputGates;
 	}
 
-	private ShuffleDescriptor[] getConsumedPartitionShuffleDescriptors(ExecutionEdge[] edges) {
-		ShuffleDescriptor[] shuffleDescriptors = new ShuffleDescriptor[edges.length];
+	private ShuffleDescriptor[] getConsumedPartitionShuffleDescriptors(
+		IntermediateResultPartition[] partitions) {
+
+		ShuffleDescriptor[] shuffleDescriptors = new ShuffleDescriptor[partitions.length];
 		// Each edge is connected to a different result partition
-		for (int i = 0; i < edges.length; i++) {
+		for (int i = 0; i < partitions.length; i++) {
 			shuffleDescriptors[i] =
-				getConsumedPartitionShuffleDescriptor(edges[i], allowUnknownPartitions);
+				getConsumedPartitionShuffleDescriptor(partitions[i], allowUnknownPartitions);
 		}
 		return shuffleDescriptors;
 	}
@@ -148,7 +149,7 @@ public class TaskDeploymentDescriptorFactory {
 			executionGraph.getJobID(),
 			executionGraph.getScheduleMode().allowLazyDeployment(),
 			executionVertex.getParallelSubtaskIndex(),
-			executionVertex.getAllInputEdges());
+			executionVertex.getAllConsumedPartitions());
 	}
 
 	private static MaybeOffloaded<JobInformation> getSerializedJobInformation(ExecutionGraph executionGraph) {
@@ -170,9 +171,8 @@ public class TaskDeploymentDescriptorFactory {
 	}
 
 	public static ShuffleDescriptor getConsumedPartitionShuffleDescriptor(
-			ExecutionEdge edge,
+			IntermediateResultPartition consumedPartition,
 			boolean allowUnknownPartitions) {
-		IntermediateResultPartition consumedPartition = edge.getSource();
 		Execution producer = consumedPartition.getProducer().getCurrentExecutionAttempt();
 
 		ExecutionState producerState = producer.getState();
