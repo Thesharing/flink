@@ -90,8 +90,8 @@ public class IntermediateResultPartition {
 		hasDataProduced = false;
 	}
 
-	public void setConsumer(ExecutionVertex ev) {
-		producer.getExecutionGraph().getEdgeManager().setPartitionConsumer(partitionId, ev);
+	public void setConsumers(List<ExecutionVertex> vertices) {
+		producer.getExecutionGraph().getEdgeManager().setPartitionConsumers(partitionId, vertices);
 	}
 
 	ExecutionEdgeManager getEdgeManager() {

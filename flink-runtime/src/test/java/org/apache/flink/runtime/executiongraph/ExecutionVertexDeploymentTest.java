@@ -42,6 +42,7 @@ import org.junit.Test;
 
 import java.net.InetAddress;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.getExecutionVertex;
@@ -274,7 +275,7 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
 			TaskDeploymentDescriptorFactory tddFactory =
 				TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, 1);
 
-			result.getPartitions()[0].setConsumer(vertex);
+			result.getPartitions()[0].setConsumers(Collections.singletonList(vertex));
 
 			TaskManagerLocation location =
 				new TaskManagerLocation(ResourceID.generate(), InetAddress.getLoopbackAddress(), 1);

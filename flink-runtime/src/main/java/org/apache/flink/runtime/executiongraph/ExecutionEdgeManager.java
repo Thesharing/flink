@@ -55,13 +55,12 @@ public class ExecutionEdgeManager {
 		return vertexConsumedPartitions.computeIfAbsent(executionVertexId, id -> new ArrayList<>());
 	}
 
-	public void setPartitionConsumer(
+	public void setPartitionConsumers(
 		IntermediateResultPartitionID resultPartitionId,
-		ExecutionVertex consumerVertex) {
+		List<ExecutionVertex> consumerVertices) {
 
-		final List<ExecutionVertex> consumerVertices = getPartitionConsumers(resultPartitionId);
-
-		consumerVertices.add(consumerVertex);
+		checkState(!partitionConsumers.containsKey(resultPartitionId));
+		partitionConsumers.put(resultPartitionId, consumerVertices);
 	}
 
 	public List<ExecutionVertex> getPartitionConsumers(IntermediateResultPartitionID resultPartitionId) {
