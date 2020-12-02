@@ -30,9 +30,7 @@ import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.apache.flink.runtime.jobgraph.JobEdge;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
@@ -347,99 +345,6 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	// --------------------------------------------------------------------------------------------
 	//  Graph building
 	// --------------------------------------------------------------------------------------------
-
-	public void connectSource(int inputNumber, IntermediateResult source, JobEdge edge) {
-
-		final DistributionPattern pattern = edge.getDistributionPattern();
-		final IntermediateResultPartition[] sourcePartitions = source.getPartitions();
-
-		switch (pattern) {
-			case POINTWISE:
-				IntermediateResultPartition[] consumedPartitions =
-					getConsumedPartitionsPointwise(sourcePartitions);
-				connectToPartitions(consumedPartitions, inputNumber);
-				break;
-
-			case ALL_TO_ALL:
-				// consumedPartitions == sourcePartitions
-				connectToPartitions(sourcePartitions, inputNumber);
-				break;
-
-			default:
-				throw new RuntimeException("Unrecognized distribution pattern.");
-
-		}
-	}
-
-	private void connectToPartitions(IntermediateResultPartition[] sourcePartitions, int inputNumber) {
-
-		setConsumedPartitions(sourcePartitions, inputNumber);
-
-		for (IntermediateResultPartition partition: sourcePartitions) {
-			partition.setConsumer(this);
-		}
-	}
-
-	private IntermediateResultPartition[] getConsumedPartitionsPointwise(
-		IntermediateResultPartition[] sourcePartitions) {
-
-		// Get the source partition of execution vertex
-		final int numSources = sourcePartitions.length;
-		final int parallelism = getTotalNumberOfParallelSubtasks();
-
-		// simple case same number of sources as targets
-		if (numSources == parallelism) {
-			return new IntermediateResultPartition[]{sourcePartitions[subTaskIndex]};
-		}
-		else if (numSources < parallelism) {
-
-			int sourcePartition;
-
-			// check if the pattern is regular or irregular
-			// we use int arithmetics for regular, and floating point with rounding for irregular
-			if (parallelism % numSources == 0) {
-				// same number of targets per source
-				int factor = parallelism / numSources;
-				sourcePartition = subTaskIndex / factor;
-			}
-			else {
-				// different number of targets per source
-				float factor = ((float) parallelism) / numSources;
-				sourcePartition = (int) (subTaskIndex / factor);
-			}
-
-			return new IntermediateResultPartition[]{sourcePartitions[sourcePartition]};
-		}
-		else {
-			if (numSources % parallelism == 0) {
-				// same number of targets per source
-				int factor = numSources / parallelism;
-				int startIndex = subTaskIndex * factor;
-
-				IntermediateResultPartition[] consumedPartitions = new IntermediateResultPartition[factor];
-				System.arraycopy(sourcePartitions, startIndex, consumedPartitions, 0, factor);
-				return consumedPartitions;
-			}
-			else {
-				float factor = ((float) numSources) / parallelism;
-
-				int start = (int) (subTaskIndex * factor);
-				int end = (subTaskIndex == getTotalNumberOfParallelSubtasks() - 1) ?
-						sourcePartitions.length :
-						(int) ((subTaskIndex + 1) * factor);
-
-				IntermediateResultPartition[] consumedPartitions =
-					new IntermediateResultPartition[end - start];
-				System.arraycopy(
-					sourcePartitions,
-					start,
-					consumedPartitions,
-					0,
-					consumedPartitions.length);
-				return consumedPartitions;
-			}
-		}
-	}
 
 	public void setConsumedPartitions(
 		IntermediateResultPartition[] consumedPartitions,
