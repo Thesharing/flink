@@ -282,9 +282,8 @@ public class PerformanceTest extends TestLogger {
 
 		startScheduling(scheduler);
 
-		waitForAllTaskSubmitted(taskDeploymentDescriptors, PARALLELISM * 2, SUBMIT_TIMEOUT);
-
 		final JobVertex source = jobVertices.get(0);
+		final JobVertex sink = jobVertices.get(1);
 
 		Predicate<AccessExecution> isDeploying = ExecutionGraphTestUtils.isInExecutionState(
 			ExecutionState.DEPLOYING);
@@ -293,21 +292,20 @@ public class PerformanceTest extends TestLogger {
 			isDeploying,
 			TIMEOUT.toMilliseconds());
 
-		final AccessExecutionJobVertex ejvSource = scheduler
-			.requestJob()
-			.getAllVertices()
-			.get(source.getID());
+		final AccessExecutionJobVertex ejvSource =
+			scheduler.requestJob().getAllVertices().get(source.getID());
 		transitionAllTaskStatus(scheduler, ejvSource, ExecutionState.RUNNING);
-		final AccessExecutionJobVertex ejvSink = scheduler
-			.requestJob()
-			.getAllVertices()
-			.get(jobVertices.get(1).getID());
+		final AccessExecutionJobVertex ejvSink =
+			scheduler.requestJob().getAllVertices().get(sink.getID());
 		transitionAllTaskStatus(scheduler, ejvSink, ExecutionState.RUNNING);
 
 		ExecutionVertex ev11 = scheduler.getExecutionJobVertex(source.getID()).getTaskVertices()[0];
 
 		final long startTime = System.nanoTime();
-		ev11.getCurrentExecutionAttempt().fail(new Exception("new fail"));
+		scheduler.updateTaskExecutionState(new TaskExecutionState(
+			jobGraph.getJobID(),
+			ev11.getCurrentExecutionAttempt().getAttemptId(),
+			ExecutionState.FAILED));
 		final long duration = (System.nanoTime() - startTime) / 1_000_000;
 		LOG.info(String.format("Duration of failover in the streaming task is : %d ms", duration));
 	}

@@ -149,6 +149,8 @@ public class RestartPipelinedRegionFailoverStrategy implements FailoverStrategy 
 	 * 3. If a region is involved, all of its consumer regions are involved
 	 */
 	private Set<SchedulingPipelinedRegion> getRegionsToRestart(SchedulingPipelinedRegion failedRegion) {
+		final long calculationStartTime = System.nanoTime();
+
 		Set<SchedulingPipelinedRegion> regionsToRestart = Collections.newSetFromMap(new IdentityHashMap<>());
 		Set<SchedulingPipelinedRegion> visitedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
 
@@ -188,6 +190,10 @@ public class RestartPipelinedRegionFailoverStrategy implements FailoverStrategy 
 				}
 			}
 		}
+
+		final long calculationDuration = (System.nanoTime() - calculationStartTime) / 1_000_000;
+
+		LOG.info("Regions to restart calculated in {} ms.", calculationDuration);
 
 		return regionsToRestart;
 	}

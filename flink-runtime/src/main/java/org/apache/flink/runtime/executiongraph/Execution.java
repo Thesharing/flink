@@ -734,6 +734,8 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 					"Rescaling from unaligned checkpoint is not yet supported.");
 			}
 
+			final long createDescriptorStartTime = System.nanoTime();
+
 			final TaskDeploymentDescriptor deployment = TaskDeploymentDescriptorFactory
 				.fromExecutionVertex(vertex, attemptNumber)
 				.createDeploymentDescriptor(
@@ -741,6 +743,14 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 					slot.getPhysicalSlotNumber(),
 					taskRestore,
 					producedPartitions.values());
+
+			final long createDescriptorDuration = (System.nanoTime() - createDescriptorStartTime) / 1_000_000;
+
+			LOG.info(
+				"{} ({}) created task deployment descriptor in {} ms.",
+				getVertex().getTaskNameWithSubtaskIndex(),
+				getAttemptId(),
+				createDescriptorDuration);
 
 			// null taskRestore to let it be GC'ed
 			taskRestore = null;
@@ -751,6 +761,9 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 				vertex.getExecutionGraph().getJobMasterMainThreadExecutor();
 
 			getVertex().notifyPendingDeployment(this);
+
+			final long submitTaskStartTime = System.nanoTime();
+
 			// We run the submission in the future executor so that the serialization of large TDDs does not block
 			// the main thread and sync back to the main thread once submission is completed.
 			CompletableFuture.supplyAsync(() -> taskManagerGateway.submitTask(deployment, rpcTimeout), executor)
@@ -772,6 +785,14 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 						}
 					},
 					jobMasterMainThreadExecutor);
+
+			final long submitTaskDuration = (System.nanoTime() - submitTaskStartTime) / 1_000_000;
+
+			LOG.info(
+				"{} ({}) submitTask in {} ms.",
+				getVertex().getTaskNameWithSubtaskIndex(),
+				getAttemptId(),
+				submitTaskDuration);
 
 		}
 		catch (Throwable t) {
