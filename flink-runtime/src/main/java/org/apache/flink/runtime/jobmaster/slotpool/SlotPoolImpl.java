@@ -552,7 +552,7 @@ public class SlotPoolImpl implements SlotPool {
 		final PendingRequest pendingRequest = findMatchingPendingRequest(allocatedSlot);
 
 		if (pendingRequest != null) {
-			log.debug("Fulfilling pending slot request [{}] with slot [{}]",
+			log.info("Fulfilling pending slot request [{}] with slot [{}]",
 				pendingRequest.getSlotRequestId(), allocatedSlot.getAllocationId());
 
 			removePendingRequest(pendingRequest.getSlotRequestId());
@@ -798,7 +798,7 @@ public class SlotPoolImpl implements SlotPool {
 
 		componentMainThreadExecutor.assertRunningInMainThread();
 
-		log.debug("Register new TaskExecutor {}.", resourceID.getStringWithMetadata());
+		log.info("Register new TaskExecutor {}.", resourceID.getStringWithMetadata());
 		return registeredTaskManagers.add(resourceID);
 	}
 
