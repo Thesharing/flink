@@ -50,10 +50,7 @@ import org.apache.flink.runtime.scheduler.ExecutionVertexVersioner;
 import org.apache.flink.runtime.scheduler.SchedulerNG;
 import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.TestExecutionVertexOperationsDecorator;
-import org.apache.flink.runtime.scheduler.strategy.EagerSchedulingStrategy;
-import org.apache.flink.runtime.scheduler.strategy.LazyFromSourcesSchedulingStrategy;
 import org.apache.flink.runtime.scheduler.strategy.PipelinedRegionSchedulingStrategy;
-import org.apache.flink.runtime.scheduler.strategy.SchedulingStrategyFactory;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
@@ -301,11 +298,6 @@ public class PerformanceTest extends TestLogger {
 	private DefaultScheduler createScheduler(
 		final JobGraph jobGraph,
 		final SlotProvider slotProvider) throws Exception {
-
-		final SchedulingStrategyFactory schedulingStrategyFactory =
-			jobGraph.getScheduleMode() == ScheduleMode.LAZY_FROM_SOURCES ?
-				new LazyFromSourcesSchedulingStrategy.Factory() :
-				new EagerSchedulingStrategy.Factory();
 
 		return SchedulerTestingUtils.newSchedulerBuilderWithDefaultSlotAllocator(
 			jobGraph,
