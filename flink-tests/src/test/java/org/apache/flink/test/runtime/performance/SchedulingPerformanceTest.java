@@ -43,6 +43,8 @@ public class SchedulingPerformanceTest {
 			.withResultPartitionType(ResultPartitionType.PIPELINED_BOUNDED)
 			.finish();
 
+		schedulingTopology.getAllPipelinedRegions();
+
 		final long startTime = System.nanoTime();
 
 		final PipelinedRegionSchedulingStrategy schedulingStrategy = new PipelinedRegionSchedulingStrategy(
@@ -102,6 +104,8 @@ public class SchedulingPerformanceTest {
 			.withResultPartitionState(ResultPartitionState.CREATED)
 			.withResultPartitionType(ResultPartitionType.BLOCKING)
 			.finish();
+
+		schedulingTopology.getAllPipelinedRegions();
 
 		final long startTime = System.nanoTime();
 
