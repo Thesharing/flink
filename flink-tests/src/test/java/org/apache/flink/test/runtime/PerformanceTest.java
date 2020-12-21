@@ -22,9 +22,6 @@ import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.JobManagerOptions;
-import org.apache.flink.runtime.akka.AkkaUtils;
-import org.apache.flink.runtime.blob.VoidBlobWriter;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
@@ -34,20 +31,13 @@ import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.AccessExecution;
 import org.apache.flink.runtime.executiongraph.AccessExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.AccessExecutionVertex;
-import org.apache.flink.runtime.executiongraph.DummyJobInformation;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
-import org.apache.flink.runtime.executiongraph.JobInformation;
-import org.apache.flink.runtime.executiongraph.NoOpExecutionDeploymentListener;
-import org.apache.flink.runtime.executiongraph.failover.RestartAllStrategy;
 import org.apache.flink.runtime.executiongraph.failover.flip1.TestRestartBackoffTimeStrategy;
-import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.RegionPartitionReleaseStrategy;
-import org.apache.flink.runtime.executiongraph.restart.NoRestartStrategy;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.executiongraph.utils.SimpleSlotProvider;
-import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -62,11 +52,10 @@ import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.TestExecutionVertexOperationsDecorator;
 import org.apache.flink.runtime.scheduler.strategy.EagerSchedulingStrategy;
 import org.apache.flink.runtime.scheduler.strategy.LazyFromSourcesSchedulingStrategy;
+import org.apache.flink.runtime.scheduler.strategy.PipelinedRegionSchedulingStrategy;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingStrategyFactory;
-import org.apache.flink.runtime.shuffle.NettyShuffleMaster;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
-import org.apache.flink.runtime.testingUtils.TestingUtils;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.TestLogger;
@@ -100,7 +89,7 @@ public class PerformanceTest extends TestLogger {
 
 	private static final long SUBMIT_TIMEOUT = 300_000L;
 
-	private static final int PARALLELISM = 8000;
+	private static final int PARALLELISM = 4000;
 
 	private ExecutorService executor;
 	private ScheduledExecutorService scheduledExecutorService;
@@ -118,52 +107,6 @@ public class PerformanceTest extends TestLogger {
 		testRestartBackoffTimeStrategy = new TestRestartBackoffTimeStrategy(true, 0);
 		testExecutionVertexOperations = new TestExecutionVertexOperationsDecorator(new DefaultExecutionVertexOperations());
 		executionVertexVersioner = new ExecutionVertexVersioner();
-	}
-
-	@Test
-	public void testBuildExecutionGraphWithPipelinedRegionPerformance() throws Exception {
-		final List<JobVertex> jobVertices = createDefaultJobVertices(
-			PARALLELISM,
-			DistributionPattern.ALL_TO_ALL,
-			ResultPartitionType.PIPELINED);
-		final JobGraph jobGraph = createJobGraph(
-			jobVertices,
-			ScheduleMode.EAGER,
-			ExecutionMode.PIPELINED);
-		final SlotProvider slotProvider = new SimpleSlotProvider(2 * PARALLELISM);
-		final JobInformation jobInformation = new DummyJobInformation(
-			jobGraph.getJobID(),
-			jobGraph.getName());
-
-		final ClassLoader classLoader = ExecutionGraph.class.getClassLoader();
-		final ExecutionGraph eg = new ExecutionGraph(
-			jobInformation,
-			TestingUtils.defaultExecutor(),
-			TestingUtils.defaultExecutor(),
-			AkkaUtils.getDefaultTimeout(),
-			new NoRestartStrategy(),
-			JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE.defaultValue(),
-			new RestartAllStrategy.Factory(),
-			slotProvider,
-			classLoader,
-			VoidBlobWriter.getInstance(),
-			Time.seconds(10L),
-			new RegionPartitionReleaseStrategy.Factory(),
-			NettyShuffleMaster.INSTANCE,
-			NoOpJobMasterPartitionTracker.INSTANCE,
-			jobGraph.getScheduleMode(),
-			NoOpExecutionDeploymentListener.INSTANCE,
-			(execution, newState) -> {
-			},
-			System.currentTimeMillis());
-
-		final long startTime = System.nanoTime();
-
-		eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-		final long duration = (System.nanoTime() - startTime) / 1_000_000;
-
-		LOG.info(String.format("Duration of building execution graph is : %d ms", duration));
 	}
 
 	@Test
@@ -373,7 +316,7 @@ public class PerformanceTest extends TestLogger {
 			.setJobMasterConfiguration(configuration)
 			.setFutureExecutor(scheduledExecutorService)
 			.setDelayExecutor(taskRestartExecutor)
-			.setSchedulingStrategyFactory(schedulingStrategyFactory)
+			.setSchedulingStrategyFactory(new PipelinedRegionSchedulingStrategy.Factory())
 			.setRestartBackoffTimeStrategy(testRestartBackoffTimeStrategy)
 			.setExecutionVertexOperations(testExecutionVertexOperations)
 			.setExecutionVertexVersioner(executionVertexVersioner)
