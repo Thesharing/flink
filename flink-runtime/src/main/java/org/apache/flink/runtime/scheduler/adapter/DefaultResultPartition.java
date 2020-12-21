@@ -45,7 +45,7 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	private DefaultExecutionVertex producer;
 
-	private final List<DefaultExecutionVertex> consumers;
+	private List<DefaultExecutionVertex> consumers;
 
 	DefaultResultPartition(
 			IntermediateResultPartitionID partitionId,
@@ -95,5 +95,9 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	void setProducer(DefaultExecutionVertex vertex) {
 		producer = checkNotNull(vertex);
+	}
+
+	public void setConsumers(List<DefaultExecutionVertex> vertices) {
+		consumers = vertices;
 	}
 }

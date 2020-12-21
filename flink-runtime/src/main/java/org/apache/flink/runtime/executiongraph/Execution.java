@@ -704,14 +704,6 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 			final List<ExecutionVertex> allConsumers,
 			final HashSet<ExecutionVertex> consumerDeduplicator) {
 
-		if (allConsumers.size() == 0) {
-			return;
-		}
-		if (allConsumers.size() > 1) {
-			fail(new IllegalStateException("Currently, only a single consumer group per partition is supported."));
-			return;
-		}
-
 		for (ExecutionVertex consumerVertex: allConsumers) {
 			final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
 			final ExecutionState consumerState = consumer.getState();

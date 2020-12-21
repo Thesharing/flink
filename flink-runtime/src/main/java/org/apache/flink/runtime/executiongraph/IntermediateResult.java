@@ -20,10 +20,13 @@ package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -55,6 +58,8 @@ public class IntermediateResult {
 
 	private final ResultPartitionType resultType;
 
+	private final List<DistributionPattern> distributionPatterns;
+
 	public IntermediateResult(
 			IntermediateDataSetID id,
 			ExecutionJobVertex producer,
@@ -79,6 +84,8 @@ public class IntermediateResult {
 
 		// The runtime type for this produced result
 		this.resultType = checkNotNull(resultType);
+
+		this.distributionPatterns = new ArrayList<>();
 	}
 
 	public void setPartition(int partitionNumber, IntermediateResultPartition partition) {

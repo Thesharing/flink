@@ -42,7 +42,7 @@ public class ExecutionEdgeManager {
 		IntermediateResultPartition[] partitions,
 		int inputNumber) {
 
-		final List<IntermediateResultPartition[]> consumedPartitions = getVertexAllConsumedPartitions(
+		final List<IntermediateResultPartition[]> consumedPartitions = getVertexConsumedPartitions(
 			executionVertexId);
 
 		// sanity check
@@ -51,7 +51,7 @@ public class ExecutionEdgeManager {
 		consumedPartitions.add(partitions);
 	}
 
-	public List<IntermediateResultPartition[]> getVertexAllConsumedPartitions(ExecutionVertexID executionVertexId) {
+	public List<IntermediateResultPartition[]> getVertexConsumedPartitions(ExecutionVertexID executionVertexId) {
 		return vertexConsumedPartitions.computeIfAbsent(executionVertexId, id -> new ArrayList<>());
 	}
 
@@ -67,4 +67,11 @@ public class ExecutionEdgeManager {
 		return partitionConsumers.computeIfAbsent(resultPartitionId, id -> new ArrayList<>());
 	}
 
+	public ConcurrentMap<IntermediateResultPartitionID, List<ExecutionVertex>> getAllPartitionConsumers() {
+		return partitionConsumers;
+	}
+
+	public ConcurrentMap<ExecutionVertexID, List<IntermediateResultPartition[]>> getAllVertexConsumedPartitions() {
+		return vertexConsumedPartitions;
+	}
 }

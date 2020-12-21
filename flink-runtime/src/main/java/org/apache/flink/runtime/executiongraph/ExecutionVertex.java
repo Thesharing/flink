@@ -219,7 +219,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	}
 
 	public List<IntermediateResultPartition[]> getAllConsumedPartitions() {
-		return getExecutionGraph().getEdgeManager().getVertexAllConsumedPartitions(executionVertexId);
+		return getExecutionGraph().getEdgeManager().getVertexConsumedPartitions(executionVertexId);
 	}
 
 	public IntermediateResultPartition[] getConsumedPartitions(int input) {

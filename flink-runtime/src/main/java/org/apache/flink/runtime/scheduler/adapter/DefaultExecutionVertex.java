@@ -36,7 +36,7 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	private final ExecutionVertexID executionVertexId;
 
-	private final List<DefaultResultPartition> consumedResults;
+	private List<DefaultResultPartition> consumedResults;
 
 	private final List<DefaultResultPartition> producedResults;
 
@@ -83,5 +83,9 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	void addConsumedResult(DefaultResultPartition result) {
 			consumedResults.add(result);
+	}
+
+	public void setConsumedResults(List<DefaultResultPartition> results) {
+		this.consumedResults = results;
 	}
 }
