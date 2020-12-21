@@ -191,7 +191,7 @@ public class DefaultDispatcherResourceManagerComponentFactory implements Dispatc
 				metricRegistry.getMetricQueryServiceGatewayRpcAddress(),
 				ioExecutor);
 
-			log.debug("Starting Dispatcher.");
+			log.info("Starting Dispatcher.");
 			dispatcherRunner = dispatcherRunnerFactory.createDispatcherRunner(
 				highAvailabilityServices.getDispatcherLeaderElectionService(),
 				fatalErrorHandler,
@@ -200,7 +200,7 @@ public class DefaultDispatcherResourceManagerComponentFactory implements Dispatc
 				rpcService,
 				partialDispatcherServices);
 
-			log.debug("Starting ResourceManager.");
+			log.info("Starting ResourceManager.");
 			resourceManager.start();
 
 			resourceManagerRetrievalService.start(resourceManagerGatewayRetriever);
