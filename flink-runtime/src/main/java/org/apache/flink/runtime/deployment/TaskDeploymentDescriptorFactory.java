@@ -107,7 +107,7 @@ public class TaskDeploymentDescriptorFactory {
 			// If the produced partition has multiple consumers registered, we
 			// need to request the one matching our sub task index.
 			// TODO Refactor after removing the consumers from the intermediate result partitions
-			int numConsumer = partitions[0].getConsumers().size();
+			int numConsumer = partitions[0].getConsumers().get(0).size();
 
 			int queueToRequest = subtaskIndex % numConsumer;
 

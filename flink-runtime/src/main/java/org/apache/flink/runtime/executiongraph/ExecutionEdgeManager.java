@@ -33,7 +33,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  */
 public class ExecutionEdgeManager {
 
-	private final ConcurrentMap<IntermediateResultPartitionID, List<ExecutionVertex>> partitionConsumers = new ConcurrentHashMap<>();
+	private final ConcurrentMap<IntermediateResultPartitionID, List<List<ExecutionVertex>>> partitionConsumers = new ConcurrentHashMap<>();
 
 	private final ConcurrentMap<ExecutionVertexID, List<IntermediateResultPartition[]>> vertexConsumedPartitions = new ConcurrentHashMap<>();
 
@@ -60,14 +60,22 @@ public class ExecutionEdgeManager {
 		List<ExecutionVertex> consumerVertices) {
 
 		checkState(!partitionConsumers.containsKey(resultPartitionId));
-		partitionConsumers.put(resultPartitionId, consumerVertices);
+
+		final List<List<ExecutionVertex>> consumers = getPartitionConsumers(resultPartitionId);
+
+		// sanity check
+		checkState(
+			consumers.size() == 0,
+			"Currently there has to be exactly one consumer in real jobs");
+
+		consumers.add(consumerVertices);
 	}
 
-	public List<ExecutionVertex> getPartitionConsumers(IntermediateResultPartitionID resultPartitionId) {
+	public List<List<ExecutionVertex>> getPartitionConsumers(IntermediateResultPartitionID resultPartitionId) {
 		return partitionConsumers.computeIfAbsent(resultPartitionId, id -> new ArrayList<>());
 	}
 
-	public ConcurrentMap<IntermediateResultPartitionID, List<ExecutionVertex>> getAllPartitionConsumers() {
+	public ConcurrentMap<IntermediateResultPartitionID, List<List<ExecutionVertex>>> getAllPartitionConsumers() {
 		return partitionConsumers;
 	}
 

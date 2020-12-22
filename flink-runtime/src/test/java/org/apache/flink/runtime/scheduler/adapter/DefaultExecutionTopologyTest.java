@@ -213,7 +213,9 @@ public class DefaultExecutionTopologyTest extends TestLogger {
 
 			assertPartitionEquals(originalPartition, adaptedPartition);
 
-			List<ExecutionVertex> originalConsumers = originalPartition.getConsumers();
+			List<ExecutionVertex> originalConsumers = originalPartition.getConsumers().stream()
+				.flatMap(Collection::stream)
+				.collect(Collectors.toList());
 			Iterable<DefaultExecutionVertex> adaptedConsumers = adaptedPartition.getConsumers();
 
 			for (ExecutionVertex originalConsumer : originalConsumers) {

@@ -474,9 +474,10 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	}
 
 	private static int getPartitionMaxParallelism(IntermediateResultPartition partition) {
-		final List<ExecutionVertex> consumers = partition.getConsumers();
-		Preconditions.checkArgument(!consumers.isEmpty(), "Currently there has to be exactly one consumer in real jobs");
-		return consumers.get(0).getJobVertex().getMaxParallelism();
+		final List<List<ExecutionVertex>> consumers = partition.getConsumers();
+		Preconditions.checkArgument(consumers.size() == 1, "Currently there has to be exactly one consumer in real jobs");
+		final List<ExecutionVertex> consumer = consumers.get(0);
+		return consumer.get(0).getJobVertex().getMaxParallelism();
 	}
 
 	/**
@@ -691,7 +692,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 
 	void scheduleOrUpdateConsumers(
 		IntermediateResultPartition partition,
-		List<ExecutionVertex> allConsumers) {
+		List<List<ExecutionVertex>> allConsumers) {
 
 		assertRunningInJobMasterMainThread();
 
@@ -701,10 +702,18 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 
 	private void scheduleOrUpdateConsumers(
 			final IntermediateResultPartition partition,
-			final List<ExecutionVertex> allConsumers,
+			final List<List<ExecutionVertex>> allConsumers,
 			final HashSet<ExecutionVertex> consumerDeduplicator) {
 
-		for (ExecutionVertex consumerVertex: allConsumers) {
+		if (allConsumers.size() == 0) {
+			return;
+		}
+		if (allConsumers.size() > 1) {
+			fail(new IllegalStateException("Currently, only a single consumer group per partition is supported."));
+			return;
+		}
+
+		for (ExecutionVertex consumerVertex: allConsumers.get(0)) {
 			final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
 			final ExecutionState consumerState = consumer.getState();
 

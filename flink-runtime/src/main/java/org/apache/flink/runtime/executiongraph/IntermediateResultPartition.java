@@ -65,7 +65,7 @@ public class IntermediateResultPartition {
 		return totalResult.getResultType();
 	}
 
-	public List<ExecutionVertex> getConsumers() {
+	public List<List<ExecutionVertex>> getConsumers() {
 		return getEdgeManager().getPartitionConsumers(partitionId);
 	}
 
