@@ -278,7 +278,10 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	private final ExecutionDeploymentListener executionDeploymentListener;
 	private final ExecutionStateUpdateListener executionStateUpdateListener;
 
-	private final ExecutionEdgeManager edgeManager;
+	private final EdgeManager edgeManager;
+
+	private final Map<ExecutionVertexID, ExecutionVertex> executionVerticesById;
+	private final Map<IntermediateResultPartitionID, IntermediateResultPartition> resultPartitionsById;
 
 	// --------------------------------------------------------------------------------------------
 	//   Constructors
@@ -358,7 +361,9 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		this.executionDeploymentListener = executionDeploymentListener;
 		this.executionStateUpdateListener = executionStateUpdateListener;
 
-		this.edgeManager = new ExecutionEdgeManager();
+		this.edgeManager = new EdgeManager();
+		this.executionVerticesById = new HashMap<>();
+		this.resultPartitionsById = new HashMap<>();
 	}
 
 	public void start(@Nonnull ComponentMainThreadExecutor jobMasterMainThreadExecutor) {
@@ -383,10 +388,6 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 	public ScheduleMode getScheduleMode() {
 		return scheduleMode;
-	}
-
-	public ExecutionEdgeManager getEdgeManager() {
-		return edgeManager;
 	}
 
 	public Time getAllocationTimeout() {
@@ -674,6 +675,37 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		};
 	}
 
+	public EdgeManager getEdgeManager() {
+		return edgeManager;
+	}
+
+	public void registerExecutionVertex(ExecutionVertexID id, ExecutionVertex vertex) {
+		executionVerticesById.put(id, vertex);
+	}
+
+	public void registerResultPartition(
+		IntermediateResultPartitionID id,
+		IntermediateResultPartition partition) {
+
+		resultPartitionsById.put(id, partition);
+	}
+
+	public ExecutionVertex getVertex(ExecutionVertexID id) {
+		return executionVerticesById.get(id);
+	}
+
+	public IntermediateResultPartition getResultPartition(final IntermediateResultPartitionID id) {
+		return resultPartitionsById.get(id);
+	}
+
+	public Map<IntermediateResultPartitionID, IntermediateResultPartition> getIntermediateResultPartitionMapping() {
+		return Collections.unmodifiableMap(resultPartitionsById);
+	}
+
+	public Map<ExecutionVertexID, ExecutionVertex> getExecutionVertexMapping() {
+		return Collections.unmodifiableMap(executionVerticesById);
+	}
+
 	@Override
 	public long getStatusTimestamp(JobStatus status) {
 		return this.stateTimestamps[status.ordinal()];
@@ -811,7 +843,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		}
 
 		// the topology assigning should happen before notifying new vertices to failoverStrategy
-		executionTopology = DefaultExecutionTopology.fromExecutionGraph(this);
+		executionTopology = new DefaultExecutionTopology(this);
 
 		partitionReleaseStrategy = partitionReleaseStrategyFactory.createInstance(getSchedulingTopology());
 	}

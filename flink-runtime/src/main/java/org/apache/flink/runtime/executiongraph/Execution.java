@@ -49,6 +49,7 @@ import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.TaskBackPressureResponse;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.operators.coordination.TaskNotRunningException;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.shuffle.NettyShuffleMaster;
 import org.apache.flink.runtime.shuffle.PartitionDescriptor;
 import org.apache.flink.runtime.shuffle.ProducerDescriptor;
@@ -56,6 +57,7 @@ import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 import org.apache.flink.runtime.shuffle.ShuffleMaster;
 import org.apache.flink.runtime.taskexecutor.TaskExecutorOperatorEventGateway;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.FlinkRuntimeException;
@@ -447,7 +449,9 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 
 		for (IntermediateResultPartition partition : partitions) {
 			PartitionDescriptor partitionDescriptor = PartitionDescriptor.from(partition);
-			int maxParallelism = getPartitionMaxParallelism(partition);
+			int maxParallelism = getPartitionMaxParallelism(
+				partition,
+				vertex.getExecutionGraph().getExecutionVertexMapping());
 			CompletableFuture<? extends ShuffleDescriptor> shuffleDescriptorFuture = vertex
 				.getExecutionGraph()
 				.getShuffleMaster()
@@ -473,11 +477,13 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 		});
 	}
 
-	private static int getPartitionMaxParallelism(IntermediateResultPartition partition) {
-		final List<List<ExecutionVertex>> consumers = partition.getConsumers();
+	private static int getPartitionMaxParallelism(
+		IntermediateResultPartition partition,
+		Map<ExecutionVertexID, ExecutionVertex> verticesById) {
+		final List<Group<ExecutionVertexID>> consumers = partition.getConsumers();
 		Preconditions.checkArgument(consumers.size() == 1, "Currently there has to be exactly one consumer in real jobs");
-		final List<ExecutionVertex> consumer = consumers.get(0);
-		return consumer.get(0).getJobVertex().getMaxParallelism();
+		final List<ExecutionVertexID> consumerIds = consumers.get(0).getItems();
+		return verticesById.get(consumerIds.get(0)).getJobVertex().getMaxParallelism();
 	}
 
 	/**
@@ -692,7 +698,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 
 	void scheduleOrUpdateConsumers(
 		IntermediateResultPartition partition,
-		List<List<ExecutionVertex>> allConsumers) {
+		List<Group<ExecutionVertexID>> allConsumers) {
 
 		assertRunningInJobMasterMainThread();
 
@@ -702,7 +708,7 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 
 	private void scheduleOrUpdateConsumers(
 			final IntermediateResultPartition partition,
-			final List<List<ExecutionVertex>> allConsumers,
+			final List<Group<ExecutionVertexID>> allConsumers,
 			final HashSet<ExecutionVertex> consumerDeduplicator) {
 
 		if (allConsumers.size() == 0) {
@@ -713,7 +719,10 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 			return;
 		}
 
-		for (ExecutionVertex consumerVertex: allConsumers.get(0)) {
+		for (ExecutionVertexID consumerVertexId: allConsumers.get(0).getItems()) {
+			final ExecutionVertex consumerVertex = vertex
+				.getExecutionGraph()
+				.getVertex(consumerVertexId);
 			final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
 			final ExecutionState consumerState = consumer.getState();
 

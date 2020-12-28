@@ -27,6 +27,7 @@ import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
@@ -36,6 +37,7 @@ import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.Test;
@@ -275,7 +277,9 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
 			TaskDeploymentDescriptorFactory tddFactory =
 				TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, 1);
 
-			result.getPartitions()[0].setConsumers(Collections.singletonList(vertex));
+			result.getPartitions()[0].setConsumers(new Group<>(
+				Collections.singletonList(vertex.getID()),
+				DistributionPattern.POINTWISE));
 
 			TaskManagerLocation location =
 				new TaskManagerLocation(ResourceID.generate(), InetAddress.getLoopbackAddress(), 1);

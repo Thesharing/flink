@@ -1,31 +1,31 @@
 package org.apache.flink.runtime.executiongraph;
 
-import org.apache.flink.runtime.jobgraph.IntermediateDataSet;
-import org.apache.flink.runtime.jobgraph.JobEdge;
-import org.apache.flink.runtime.jobgraph.JobVertex;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * Utilities for building {@link ExecutionEdgeManager}.
+ * Utilities for building {@link EdgeManager}.
  */
-public class ExecutionEdgeManagerBuildUtil {
+public class EdgeManagerBuildUtil {
 
 	public static void registerToExecutionEdgeManager(
 		ExecutionVertex[] taskVertices,
-		int parallelism,
-		JobEdge jobEdge,
 		IntermediateResult ires,
-		int inputNumber) {
+		int inputNumber,
+		DistributionPattern distributionPattern) {
 
-		switch (jobEdge.getDistributionPattern()) {
+		switch (distributionPattern) {
 			case POINTWISE:
-				connectPointwise(taskVertices, parallelism, jobEdge, ires, inputNumber);
+				connectPointwise(taskVertices, ires, inputNumber, distributionPattern);
 				break;
 			case ALL_TO_ALL:
-				connectAllToAll(taskVertices, ires, inputNumber);
+				connectAllToAll(taskVertices, ires, inputNumber, distributionPattern);
 				break;
 			default:
 				throw new RuntimeException("Unrecognized distribution pattern.");
@@ -35,12 +35,25 @@ public class ExecutionEdgeManagerBuildUtil {
 	private static void connectAllToAll(
 		ExecutionVertex[] taskVertices,
 		IntermediateResult ires,
-		int inputNumber) {
+		int inputNumber,
+		DistributionPattern distributionPattern) {
 
+		Group<IntermediateResultPartitionID> consumedPartitions =
+			new Group<>(
+				Arrays.stream(ires.getPartitions())
+					.map(IntermediateResultPartition::getPartitionId)
+					.collect(Collectors.toList()),
+				distributionPattern);
 		for (ExecutionVertex ev : taskVertices) {
-			ev.setConsumedPartitions(ires.getPartitions(), inputNumber);
+			ev.setConsumedPartitions(consumedPartitions, inputNumber);
 		}
-		List<ExecutionVertex> vertices = new ArrayList<>(Arrays.asList(taskVertices));
+
+		Group<ExecutionVertexID> vertices =
+			new Group<>(
+				Arrays.stream(taskVertices)
+					.map(ExecutionVertex::getID)
+					.collect(Collectors.toList()),
+				distributionPattern);
 		for (IntermediateResultPartition partition : ires.getPartitions()) {
 			partition.setConsumers(vertices);
 		}
@@ -48,21 +61,22 @@ public class ExecutionEdgeManagerBuildUtil {
 
 	private static void connectPointwise(
 		ExecutionVertex[] taskVertices,
-		int parallelism,
-		JobEdge jobEdge,
 		IntermediateResult ires,
-		int inputNumber) {
+		int inputNumber,
+		DistributionPattern distributionPattern) {
 
-		ArrayList<ArrayList<IntermediateResultPartition>> partitions = new ArrayList<>(parallelism);
+		final int parallelism = taskVertices[0].getParallelism();
+
+		ArrayList<Group<IntermediateResultPartitionID>> partitions = new ArrayList<>(parallelism);
 		for (int i = 0; i < parallelism; i++) {
-			partitions.add(new ArrayList<>());
+			partitions.add(new Group<>(distributionPattern));
 		}
 		for (int i = 0; i < ires.getPartitions().length; i++) {
 			IntermediateResultPartition partition = ires.getPartitions()[i];
-			List<ExecutionVertex> consumerExecutionVertices =
-				getConsumerExecutionVerticesPointwise(taskVertices, jobEdge, i);
-			for (ExecutionVertex vertex : consumerExecutionVertices) {
-				partitions.get(vertex.getID().getSubtaskIndex()).add(partition);
+			Group<ExecutionVertexID> consumerExecutionVertices =
+				getConsumerExecutionVerticesPointwise(taskVertices, ires, i, distributionPattern);
+			for (ExecutionVertexID vertexID : consumerExecutionVertices.getItems()) {
+				partitions.get(vertexID.getSubtaskIndex()).getItems().add(partition.getPartitionId());
 			}
 
 			partition.setConsumers(consumerExecutionVertices);
@@ -70,27 +84,25 @@ public class ExecutionEdgeManagerBuildUtil {
 		for (int i = 0; i < parallelism; i++) {
 			ExecutionVertex ev = taskVertices[i];
 			ev.setConsumedPartitions(
-				partitions.get(i).toArray(new IntermediateResultPartition[]{}),
+				partitions.get(i),
 				inputNumber);
 		}
 	}
 
-	private static List<ExecutionVertex> getConsumerExecutionVerticesPointwise(
+	private static Group<ExecutionVertexID> getConsumerExecutionVerticesPointwise(
 		ExecutionVertex[] taskVertices,
-		JobEdge jobEdge,
-		int partitionNumber) {
+		IntermediateResult ires,
+		int partitionNumber,
+		DistributionPattern distributionPattern) {
 
-		final IntermediateDataSet source = jobEdge.getSource();
-		final JobVertex target = jobEdge.getTarget();
+		final int sourceCount = ires.getProducer().getParallelism();
+		final int targetCount = taskVertices[0].getParallelism();
 
-		final int sourceCount = source.getProducer().getParallelism();
-		final int targetCount = target.getParallelism();
-
-		final List<ExecutionVertex> consumerVertices = new ArrayList<>();
+		final Group<ExecutionVertexID> consumerVertices = new Group<>(distributionPattern);
 
 		// simple case same number of sources as targets
 		if (sourceCount == targetCount) {
-			consumerVertices.add(taskVertices[partitionNumber]);
+			consumerVertices.getItems().add(taskVertices[partitionNumber].getID());
 		} else if (sourceCount > targetCount) {
 			int vertexSubtaskIndex;
 
@@ -109,16 +121,16 @@ public class ExecutionEdgeManagerBuildUtil {
 				int mirrorVertexSubTaskIndex = (int) (mirrorPartitionNumber / factor);
 				vertexSubtaskIndex = targetCount - 1 - mirrorVertexSubTaskIndex;
 			}
-
-			consumerVertices.add(taskVertices[vertexSubtaskIndex]);
+			consumerVertices.getItems().add(taskVertices[vertexSubtaskIndex].getID());
 		} else {
 			if (targetCount % sourceCount == 0) {
 				// same number of targets per source
 				int factor = targetCount / sourceCount;
 				int startIndex = partitionNumber * factor;
 
-				consumerVertices.addAll(
-					Arrays.asList(taskVertices).subList(startIndex, startIndex + factor));
+				for (int i = 0; i < factor; i++) {
+					consumerVertices.getItems().add(taskVertices[startIndex + i].getID());
+				}
 			} else {
 				float factor = ((float) targetCount) / sourceCount;
 
@@ -132,7 +144,7 @@ public class ExecutionEdgeManagerBuildUtil {
 				for (int i = 0; i < end - start; i++) {
 					int mirrorVertexSubTaskIndex = start + i;
 					int vertexSubtaskIndex = targetCount - 1 - mirrorVertexSubTaskIndex;
-					consumerVertices.add(taskVertices[vertexSubtaskIndex]);
+					consumerVertices.getItems().add(taskVertices[vertexSubtaskIndex].getID());
 				}
 			}
 		}

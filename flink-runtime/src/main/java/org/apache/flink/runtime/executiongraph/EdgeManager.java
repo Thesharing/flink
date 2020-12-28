@@ -20,29 +20,30 @@ package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * Class that manages all data connections between tasks.
  */
-public class ExecutionEdgeManager {
+public class EdgeManager {
 
-	private final ConcurrentMap<IntermediateResultPartitionID, List<List<ExecutionVertex>>> partitionConsumers = new ConcurrentHashMap<>();
+	private final Map<IntermediateResultPartitionID, List<Group<ExecutionVertexID>>> partitionConsumers = new HashMap<>();
 
-	private final ConcurrentMap<ExecutionVertexID, List<IntermediateResultPartition[]>> vertexConsumedPartitions = new ConcurrentHashMap<>();
+	private final Map<ExecutionVertexID, List<Group<IntermediateResultPartitionID>>> vertexConsumedPartitions = new HashMap<>();
 
 	public void setVertexConsumedPartitions(
 		ExecutionVertexID executionVertexId,
-		IntermediateResultPartition[] partitions,
+		Group<IntermediateResultPartitionID> partitions,
 		int inputNumber) {
 
-		final List<IntermediateResultPartition[]> consumedPartitions = getVertexConsumedPartitions(
+		final List<Group<IntermediateResultPartitionID>> consumedPartitions = getVertexConsumedPartitions(
 			executionVertexId);
 
 		// sanity check
@@ -51,17 +52,17 @@ public class ExecutionEdgeManager {
 		consumedPartitions.add(partitions);
 	}
 
-	public List<IntermediateResultPartition[]> getVertexConsumedPartitions(ExecutionVertexID executionVertexId) {
+	public List<Group<IntermediateResultPartitionID>> getVertexConsumedPartitions(ExecutionVertexID executionVertexId) {
 		return vertexConsumedPartitions.computeIfAbsent(executionVertexId, id -> new ArrayList<>());
 	}
 
 	public void setPartitionConsumers(
 		IntermediateResultPartitionID resultPartitionId,
-		List<ExecutionVertex> consumerVertices) {
+		Group<ExecutionVertexID> consumerVertices) {
 
 		checkState(!partitionConsumers.containsKey(resultPartitionId));
 
-		final List<List<ExecutionVertex>> consumers = getPartitionConsumers(resultPartitionId);
+		final List<Group<ExecutionVertexID>> consumers = getPartitionConsumers(resultPartitionId);
 
 		// sanity check
 		checkState(
@@ -71,15 +72,15 @@ public class ExecutionEdgeManager {
 		consumers.add(consumerVertices);
 	}
 
-	public List<List<ExecutionVertex>> getPartitionConsumers(IntermediateResultPartitionID resultPartitionId) {
+	public List<Group<ExecutionVertexID>> getPartitionConsumers(IntermediateResultPartitionID resultPartitionId) {
 		return partitionConsumers.computeIfAbsent(resultPartitionId, id -> new ArrayList<>());
 	}
 
-	public ConcurrentMap<IntermediateResultPartitionID, List<List<ExecutionVertex>>> getAllPartitionConsumers() {
+	public Map<IntermediateResultPartitionID, List<Group<ExecutionVertexID>>> getAllPartitionConsumers() {
 		return partitionConsumers;
 	}
 
-	public ConcurrentMap<ExecutionVertexID, List<IntermediateResultPartition[]>> getAllVertexConsumedPartitions() {
+	public Map<ExecutionVertexID, List<Group<IntermediateResultPartitionID>>> getAllVertexConsumedPartitions() {
 		return vertexConsumedPartitions;
 	}
 }

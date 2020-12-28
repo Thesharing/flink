@@ -21,9 +21,13 @@ package org.apache.flink.runtime.scheduler.strategy;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -80,6 +84,15 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
 	@Override
 	public Iterable<TestingSchedulingExecutionVertex> getConsumers() {
 		return consumers;
+	}
+
+	@Override
+	public List<Group<ExecutionVertexID>> getGroupedConsumers() {
+		return Collections.singletonList(new Group<>(
+			consumers.stream()
+				.map(TestingSchedulingExecutionVertex::getId)
+				.collect(Collectors.toList()),
+			null));
 	}
 
 	void addConsumer(TestingSchedulingExecutionVertex consumer) {

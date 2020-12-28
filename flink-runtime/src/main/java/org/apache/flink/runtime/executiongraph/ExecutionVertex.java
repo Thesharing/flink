@@ -37,6 +37,7 @@ import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.runtime.util.EvictingBoundedList;
 import org.apache.flink.util.ExceptionUtils;
 
@@ -130,6 +131,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 			resultPartitions.put(irp.getPartitionId(), irp);
 		}
 
+		getExecutionGraph().registerExecutionVertex(executionVertexId, this);
+
 		this.priorExecutions = new EvictingBoundedList<>(maxPriorExecutionHistoryLength);
 
 		this.currentExecution = new Execution(
@@ -218,12 +221,12 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 		return getAllConsumedPartitions().size();
 	}
 
-	public List<IntermediateResultPartition[]> getAllConsumedPartitions() {
+	public List<Group<IntermediateResultPartitionID>> getAllConsumedPartitions() {
 		return getExecutionGraph().getEdgeManager().getVertexConsumedPartitions(executionVertexId);
 	}
 
-	public IntermediateResultPartition[] getConsumedPartitions(int input) {
-		final List<IntermediateResultPartition[]> allConsumedPartitions = getAllConsumedPartitions();
+	public Group<IntermediateResultPartitionID> getConsumedPartitions(int input) {
+		final List<Group<IntermediateResultPartitionID>> allConsumedPartitions = getAllConsumedPartitions();
 
 		if (input < 0 || input >= allConsumedPartitions.size()) {
 			throw new IllegalArgumentException(String.format("Input %d is out of range [0..%d)", input, allConsumedPartitions.size()));
@@ -347,7 +350,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	// --------------------------------------------------------------------------------------------
 
 	public void setConsumedPartitions(
-		IntermediateResultPartition[] consumedPartitions,
+		Group<IntermediateResultPartitionID> consumedPartitions,
 		int inputNum) {
 
 		getExecutionGraph().getEdgeManager().setVertexConsumedPartitions(
@@ -424,7 +427,7 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	 *         if there is no input-based preference.
 	 */
 	public Collection<CompletableFuture<TaskManagerLocation>> getPreferredLocationsBasedOnInputs() {
-		final List<IntermediateResultPartition[]> allConsumedPartitions = getAllConsumedPartitions();
+		final List<Group<IntermediateResultPartitionID>> allConsumedPartitions = getAllConsumedPartitions();
 
 		// otherwise, base the preferred locations on the input connections
 		if (allConsumedPartitions == null) {
@@ -435,14 +438,17 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 			Set<CompletableFuture<TaskManagerLocation>> inputLocations = new HashSet<>(getTotalNumberOfParallelSubtasks());
 
 			// go over all inputs
-			for (IntermediateResultPartition[] sources : allConsumedPartitions) {
+			for (Group<IntermediateResultPartitionID> sources : allConsumedPartitions) {
 				inputLocations.clear();
 				if (sources != null) {
 					// go over all input sources
-					for (IntermediateResultPartition source : sources) {
+					for (IntermediateResultPartitionID sourceId : sources.getItems()) {
 						// look-up assigned slot of input source
 						CompletableFuture<TaskManagerLocation> locationFuture =
-							source.getProducer().getCurrentTaskManagerLocationFuture();
+							getExecutionGraph()
+								.getResultPartition(sourceId)
+								.getProducer()
+								.getCurrentTaskManagerLocationFuture();
 						// add input location
 						inputLocations.add(locationFuture);
 						// inputs which have too many distinct sources are not considered
@@ -725,8 +731,8 @@ public class ExecutionVertex implements AccessExecutionVertex, Archiveable<Archi
 	 * @return whether the input is consumable
 	 */
 	boolean isInputConsumable(int inputNumber) {
-		for (IntermediateResultPartition source: getConsumedPartitions(inputNumber)) {
-			if (source.isConsumable()) {
+		for (IntermediateResultPartitionID sourceId: getConsumedPartitions(inputNumber).getItems()) {
+			if (getExecutionGraph().getResultPartition(sourceId).isConsumable()) {
 				return true;
 			}
 		}

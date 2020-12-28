@@ -22,9 +22,10 @@ import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
-import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -52,10 +53,13 @@ public class ExecutionGraphToInputsLocationsRetrieverAdapter implements InputsLo
 		ExecutionVertex ev = getExecutionVertex(executionVertexId);
 
 		List<Collection<ExecutionVertexID>> resultPartitionProducers = new ArrayList<>(ev.getNumberOfInputs());
-		for (IntermediateResultPartition[] consumedPartitions : ev.getAllConsumedPartitions()) {
-			List<ExecutionVertexID> producers = new ArrayList<>(consumedPartitions.length);
-			for (IntermediateResultPartition consumedPartition: consumedPartitions) {
-				ExecutionVertex producer = consumedPartition.getProducer();
+		for (Group<IntermediateResultPartitionID> consumedPartitions : ev.getAllConsumedPartitions()) {
+			List<ExecutionVertexID> producers =
+				new ArrayList<>(consumedPartitions.getItems().size());
+			for (IntermediateResultPartitionID consumedPartitionId : consumedPartitions.getItems()) {
+				ExecutionVertex producer = executionGraph
+					.getResultPartition(consumedPartitionId)
+					.getProducer();
 				producers.add(producer.getID());
 			}
 			resultPartitionProducers.add(producers);

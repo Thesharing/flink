@@ -20,6 +20,8 @@ package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.List;
 
@@ -28,8 +30,6 @@ public class IntermediateResultPartition {
 	private final IntermediateResult totalResult;
 
 	private final ExecutionVertex producer;
-
-	private final int partitionNumber;
 
 	private final IntermediateResultPartitionID partitionId;
 
@@ -41,8 +41,9 @@ public class IntermediateResultPartition {
 	public IntermediateResultPartition(IntermediateResult totalResult, ExecutionVertex producer, int partitionNumber) {
 		this.totalResult = totalResult;
 		this.producer = producer;
-		this.partitionNumber = partitionNumber;
 		this.partitionId = new IntermediateResultPartitionID(totalResult.getId(), partitionNumber);
+
+		producer.getExecutionGraph().registerResultPartition(partitionId, this);
 	}
 
 	public ExecutionVertex getProducer() {
@@ -50,7 +51,7 @@ public class IntermediateResultPartition {
 	}
 
 	public int getPartitionNumber() {
-		return partitionNumber;
+		return partitionId.getPartitionNumber();
 	}
 
 	public IntermediateResult getIntermediateResult() {
@@ -65,7 +66,7 @@ public class IntermediateResultPartition {
 		return totalResult.getResultType();
 	}
 
-	public List<List<ExecutionVertex>> getConsumers() {
+	public List<Group<ExecutionVertexID>> getConsumers() {
 		return getEdgeManager().getPartitionConsumers(partitionId);
 	}
 
@@ -90,11 +91,11 @@ public class IntermediateResultPartition {
 		hasDataProduced = false;
 	}
 
-	public void setConsumers(List<ExecutionVertex> vertices) {
+	public void setConsumers(Group<ExecutionVertexID> vertices) {
 		producer.getExecutionGraph().getEdgeManager().setPartitionConsumers(partitionId, vertices);
 	}
 
-	ExecutionEdgeManager getEdgeManager() {
+	EdgeManager getEdgeManager() {
 		return producer.getExecutionGraph().getEdgeManager();
 	}
 

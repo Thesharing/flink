@@ -21,12 +21,15 @@ package org.apache.flink.runtime.scheduler.adapter;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ResultPartitionState;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
+import org.apache.flink.runtime.topology.Group;
 
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -45,18 +48,19 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	private DefaultExecutionVertex producer;
 
-	private List<DefaultExecutionVertex> consumers;
+	private DefaultExecutionTopology topology;
 
 	DefaultResultPartition(
-			IntermediateResultPartitionID partitionId,
-			IntermediateDataSetID intermediateDataSetId,
-			ResultPartitionType partitionType,
-			Supplier<ResultPartitionState> resultPartitionStateSupplier) {
+		IntermediateResultPartitionID partitionId,
+		IntermediateDataSetID intermediateDataSetId,
+		ResultPartitionType partitionType,
+		Supplier<ResultPartitionState> resultPartitionStateSupplier,
+		DefaultExecutionTopology topology) {
 		this.resultPartitionId = checkNotNull(partitionId);
 		this.intermediateDataSetId = checkNotNull(intermediateDataSetId);
 		this.partitionType = checkNotNull(partitionType);
 		this.resultPartitionStateSupplier = checkNotNull(resultPartitionStateSupplier);
-		this.consumers = new ArrayList<>();
+		this.topology = topology;
 	}
 
 	@Override
@@ -86,18 +90,47 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	@Override
 	public Iterable<DefaultExecutionVertex> getConsumers() {
-		return consumers;
+		return getGroupedConsumers()
+			.stream()
+			.map(Group::getItems)
+			.flatMap(Collection::stream)
+			.map(topology::getVertex)
+			.collect(Collectors.toList());
+		/* final List<Group<ExecutionVertexID>> consumers = getGroupedConsumers();
+
+		return () -> new Iterator<DefaultExecutionVertex>() {
+			private int groupIdx = 0;
+			private int idx = 0;
+
+			@Override
+			public boolean hasNext() {
+				if (groupIdx < consumers.size() &&
+					idx >= consumers.get(groupIdx).getItems().size()) {
+					++groupIdx;
+					idx = 0;
+				}
+				return groupIdx < consumers.size() &&
+					idx < consumers.get(groupIdx).getItems().size();
+			}
+
+			@Override
+			public DefaultExecutionVertex next() {
+				if (hasNext()) {
+					return topology.getVertex(
+						consumers.get(groupIdx).getItems().get(idx++));
+				} else {
+					throw new NoSuchElementException();
+				}
+			}
+		}; */
 	}
 
-	void addConsumer(DefaultExecutionVertex vertex) {
-		consumers.add(checkNotNull(vertex));
+	@Override
+	public List<Group<ExecutionVertexID>> getGroupedConsumers() {
+		return topology.getEdgeManager().getPartitionConsumers(resultPartitionId);
 	}
 
 	void setProducer(DefaultExecutionVertex vertex) {
 		producer = checkNotNull(vertex);
-	}
-
-	public void setConsumers(List<DefaultExecutionVertex> vertices) {
-		consumers = vertices;
 	}
 }

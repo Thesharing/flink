@@ -20,11 +20,14 @@ package org.apache.flink.runtime.scheduler.adapter;
 
 import org.apache.flink.api.common.InputDependencyConstraint;
 import org.apache.flink.runtime.execution.ExecutionState;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
+import org.apache.flink.runtime.topology.Group;
 
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.function.Supplier;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -36,24 +39,25 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	private final ExecutionVertexID executionVertexId;
 
-	private List<DefaultResultPartition> consumedResults;
-
 	private final List<DefaultResultPartition> producedResults;
 
 	private final Supplier<ExecutionState> stateSupplier;
 
 	private final InputDependencyConstraint inputDependencyConstraint;
 
+	private final DefaultExecutionTopology topology;
+
 	DefaultExecutionVertex(
 			ExecutionVertexID executionVertexId,
 			List<DefaultResultPartition> producedPartitions,
 			Supplier<ExecutionState> stateSupplier,
-			InputDependencyConstraint constraint) {
+			InputDependencyConstraint constraint,
+			DefaultExecutionTopology topology) {
 		this.executionVertexId = checkNotNull(executionVertexId);
-		this.consumedResults = new ArrayList<>();
 		this.stateSupplier = checkNotNull(stateSupplier);
 		this.producedResults = checkNotNull(producedPartitions);
 		this.inputDependencyConstraint = checkNotNull(constraint);
+		this.topology = topology;
 	}
 
 	@Override
@@ -68,7 +72,44 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	@Override
 	public Iterable<DefaultResultPartition> getConsumedResults() {
-		return consumedResults;
+		/*return getGroupedConsumedResults()
+			.stream()
+			.map(Group::getItems)
+			.flatMap(Collection::stream)
+			.map(topology::getResultPartition)
+			.collect(Collectors.toList());*/
+		final List<Group<IntermediateResultPartitionID>> consumers = getGroupedConsumedResults();
+
+		return () -> new Iterator<DefaultResultPartition>() {
+			private int groupIdx = 0;
+			private int idx = 0;
+
+			@Override
+			public boolean hasNext() {
+				if (groupIdx < consumers.size() &&
+					idx >= consumers.get(groupIdx).getItems().size()) {
+					++groupIdx;
+					idx = 0;
+				}
+				return groupIdx < consumers.size() &&
+					idx < consumers.get(groupIdx).getItems().size();
+			}
+
+			@Override
+			public DefaultResultPartition next() {
+				if (hasNext()) {
+					return topology.getResultPartition(
+						consumers.get(groupIdx).getItems().get(idx++));
+				} else {
+					throw new NoSuchElementException();
+				}
+			}
+		};
+	}
+
+	@Override
+	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
+		return topology.getEdgeManager().getVertexConsumedPartitions(executionVertexId);
 	}
 
 	@Override
@@ -79,13 +120,5 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 	@Override
 	public InputDependencyConstraint getInputDependencyConstraint() {
 		return inputDependencyConstraint;
-	}
-
-	void addConsumedResult(DefaultResultPartition result) {
-			consumedResults.add(result);
-	}
-
-	public void setConsumedResults(List<DefaultResultPartition> results) {
-		this.consumedResults = results;
 	}
 }

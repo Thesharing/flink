@@ -65,7 +65,7 @@ public class DeployingPerformanceTest {
 			for (ExecutionVertex ev : ejv.getTaskVertices()) {
 				Execution execution = ev.getCurrentExecutionAttempt();
 				LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-				execution.registerProducedPartitions(slot.getTaskManagerLocation()).get();
+				execution.registerProducedPartitions(slot.getTaskManagerLocation(), true).get();
 				if (!execution.tryAssignResource(slot)) {
 					throw new RuntimeException("Error when assigning slot to execution.");
 				}
@@ -117,7 +117,7 @@ public class DeployingPerformanceTest {
 			for (ExecutionVertex ev : ejv.getTaskVertices()) {
 				Execution execution = ev.getCurrentExecutionAttempt();
 				LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-				execution.registerProducedPartitions(slot.getTaskManagerLocation()).get();
+				execution.registerProducedPartitions(slot.getTaskManagerLocation(), true).get();
 				if (!execution.tryAssignResource(slot)) {
 					throw new RuntimeException("Error when assigning slot to execution.");
 				}

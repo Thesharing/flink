@@ -70,7 +70,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static org.apache.flink.runtime.executiongraph.ExecutionEdgeManagerBuildUtil.registerToExecutionEdgeManager;
+import static org.apache.flink.runtime.executiongraph.EdgeManagerBuildUtil.registerToExecutionEdgeManager;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -424,7 +424,7 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 
 			this.inputs.add(ires);
 
-			registerToExecutionEdgeManager(taskVertices, parallelism, edge, ires, num);
+			registerToExecutionEdgeManager(taskVertices, ires, num, edge.getDistributionPattern());
 		}
 	}
 

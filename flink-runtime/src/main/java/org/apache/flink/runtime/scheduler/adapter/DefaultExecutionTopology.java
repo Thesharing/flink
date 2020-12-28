@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.scheduler.adapter;
 
+import org.apache.flink.runtime.executiongraph.EdgeManager;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
@@ -60,17 +61,30 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 
 	private final List<DefaultSchedulingPipelinedRegion> pipelinedRegions;
 
-	private DefaultExecutionTopology(
-			Map<ExecutionVertexID, DefaultExecutionVertex> executionVerticesById,
-			List<DefaultExecutionVertex> executionVerticesList,
-			Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionsById,
-			Map<ExecutionVertexID, DefaultSchedulingPipelinedRegion> pipelinedRegionsByVertex,
-			List<DefaultSchedulingPipelinedRegion> pipelinedRegions) {
-		this.executionVerticesById = checkNotNull(executionVerticesById);
-		this.executionVerticesList = checkNotNull(executionVerticesList);
-		this.resultPartitionsById = checkNotNull(resultPartitionsById);
-		this.pipelinedRegionsByVertex = checkNotNull(pipelinedRegionsByVertex);
-		this.pipelinedRegions = checkNotNull(pipelinedRegions);
+	private final EdgeManager edgeManager;
+
+	public DefaultExecutionTopology(ExecutionGraph executionGraph) {
+		this.edgeManager = checkNotNull(executionGraph.getEdgeManager());
+
+		checkNotNull(executionGraph, "execution graph can not be null");
+
+		ExecutionGraphIndex executionGraphIndex = computeExecutionGraphIndex(
+			executionGraph.getAllExecutionVertices(),
+			executionGraph.getTotalNumberOfVertices());
+
+		this.executionVerticesById = checkNotNull(executionGraphIndex.executionVerticesById);
+		this.executionVerticesList = checkNotNull(executionGraphIndex.executionVerticesList);
+		this.resultPartitionsById = checkNotNull(executionGraphIndex.resultPartitionsById);
+
+		IndexedPipelinedRegions indexedPipelinedRegions =
+			computePipelinedRegions(executionGraphIndex.executionVerticesList);
+
+		ensureCoLocatedVerticesInSameRegion(
+			indexedPipelinedRegions.pipelinedRegions,
+			executionGraph);
+
+		this.pipelinedRegionsByVertex = checkNotNull(indexedPipelinedRegions.pipelinedRegionsByVertex);
+		this.pipelinedRegions = checkNotNull(indexedPipelinedRegions.pipelinedRegions);
 	}
 
 	@Override
@@ -114,27 +128,11 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 		return pipelinedRegion;
 	}
 
-	public static DefaultExecutionTopology fromExecutionGraph(ExecutionGraph executionGraph) {
-		checkNotNull(executionGraph, "execution graph can not be null");
-
-		ExecutionGraphIndex executionGraphIndex = computeExecutionGraphIndex(
-			executionGraph.getAllExecutionVertices(),
-			executionGraph.getTotalNumberOfVertices());
-
-		IndexedPipelinedRegions indexedPipelinedRegions =
-			computePipelinedRegions(executionGraphIndex.executionVerticesList);
-
-		ensureCoLocatedVerticesInSameRegion(indexedPipelinedRegions.pipelinedRegions, executionGraph);
-
-		return new DefaultExecutionTopology(
-			executionGraphIndex.executionVerticesById,
-			executionGraphIndex.executionVerticesList,
-			executionGraphIndex.resultPartitionsById,
-			indexedPipelinedRegions.pipelinedRegionsByVertex,
-			indexedPipelinedRegions.pipelinedRegions);
+	public EdgeManager getEdgeManager() {
+		return edgeManager;
 	}
 
-	private static ExecutionGraphIndex computeExecutionGraphIndex(
+	private ExecutionGraphIndex computeExecutionGraphIndex(
 			Iterable<ExecutionVertex> executionVertices,
 			int vertexNumber) {
 		Map<ExecutionVertexID, DefaultExecutionVertex> executionVerticesById = new HashMap<>();
@@ -154,14 +152,13 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 			executionVerticesList.add(schedulingVertex);
 			executionVertexMap.put(vertex, schedulingVertex);
 		}
-		connectVerticesToConsumedPartitions(executionVertexMap, resultPartitionsById);
 		return new ExecutionGraphIndex(
 			executionVerticesById,
 			executionVerticesList,
 			resultPartitionsById);
 	}
 
-	private static List<DefaultResultPartition> generateProducedSchedulingResultPartition(
+	private List<DefaultResultPartition> generateProducedSchedulingResultPartition(
 		Map<IntermediateResultPartitionID, IntermediateResultPartition> producedIntermediatePartitions) {
 
 		List<DefaultResultPartition> producedSchedulingPartitions = new ArrayList<>(producedIntermediatePartitions.size());
@@ -172,12 +169,13 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 					irp.getPartitionId(),
 					irp.getIntermediateResult().getId(),
 					irp.getResultType(),
-					() -> irp.isConsumable() ? ResultPartitionState.CONSUMABLE : ResultPartitionState.CREATED)));
+					() -> irp.isConsumable() ? ResultPartitionState.CONSUMABLE : ResultPartitionState.CREATED,
+					this)));
 
 		return producedSchedulingPartitions;
 	}
 
-	private static DefaultExecutionVertex generateSchedulingExecutionVertex(
+	private DefaultExecutionVertex generateSchedulingExecutionVertex(
 		ExecutionVertex vertex,
 		List<DefaultResultPartition> producedPartitions) {
 
@@ -185,29 +183,12 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 			vertex.getID(),
 			producedPartitions,
 			vertex::getExecutionState,
-			vertex.getInputDependencyConstraint());
+			vertex.getInputDependencyConstraint(),
+			this);
 
 		producedPartitions.forEach(partition -> partition.setProducer(schedulingVertex));
 
 		return schedulingVertex;
-	}
-
-	private static void connectVerticesToConsumedPartitions(
-		Map<ExecutionVertex, DefaultExecutionVertex> executionVertexMap,
-		Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitions) {
-
-		for (Map.Entry<ExecutionVertex, DefaultExecutionVertex> mapEntry : executionVertexMap.entrySet()) {
-			final DefaultExecutionVertex schedulingVertex = mapEntry.getValue();
-			final ExecutionVertex executionVertex = mapEntry.getKey();
-
-			for (IntermediateResultPartition[] consumedPartitions : executionVertex.getAllConsumedPartitions()) {
-				for (IntermediateResultPartition consumedPartition : consumedPartitions) {
-					DefaultResultPartition partition = resultPartitions.get(consumedPartition.getPartitionId());
-					schedulingVertex.addConsumedResult(partition);
-					partition.addConsumer(schedulingVertex);
-				}
-			}
-		}
 	}
 
 	private static IndexedPipelinedRegions computePipelinedRegions(

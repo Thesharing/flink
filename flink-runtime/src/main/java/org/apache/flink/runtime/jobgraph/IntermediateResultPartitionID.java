@@ -51,6 +51,10 @@ public class IntermediateResultPartitionID implements ResultID {
 		this.partitionNum = partitionNum;
 	}
 
+	public int getPartitionNumber() {
+		return partitionNum;
+	}
+
 	public void writeTo(ByteBuf buf) {
 		intermediateDataSetID.writeTo(buf);
 		buf.writeInt(partitionNum);

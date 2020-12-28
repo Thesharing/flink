@@ -9,7 +9,6 @@ import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.blob.VoidBlobWriter;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.AccessExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.AccessExecutionVertex;
@@ -18,9 +17,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.JobInformation;
 import org.apache.flink.runtime.executiongraph.NoOpExecutionDeploymentListener;
-import org.apache.flink.runtime.executiongraph.failover.RestartAllStrategy;
 import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.RegionPartitionReleaseStrategy;
-import org.apache.flink.runtime.executiongraph.restart.NoRestartStrategy;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
@@ -102,9 +99,7 @@ public class RuntimePerformanceTestUtil {
 			TestingUtils.defaultExecutor(),
 			TestingUtils.defaultExecutor(),
 			AkkaUtils.getDefaultTimeout(),
-			new NoRestartStrategy(),
 			JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE.defaultValue(),
-			new RestartAllStrategy.Factory(),
 			slotProvider,
 			classLoader,
 			VoidBlobWriter.getInstance(),
@@ -128,7 +123,6 @@ public class RuntimePerformanceTestUtil {
 	}
 
 	public static void startScheduling(final SchedulerNG scheduler) {
-		scheduler.setMainThreadExecutor(ComponentMainThreadExecutorServiceAdapter.forMainThread());
 		scheduler.startScheduling();
 	}
 

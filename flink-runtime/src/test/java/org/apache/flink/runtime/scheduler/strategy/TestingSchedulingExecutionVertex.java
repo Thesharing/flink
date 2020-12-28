@@ -20,11 +20,16 @@ package org.apache.flink.runtime.scheduler.strategy;
 
 import org.apache.flink.api.common.InputDependencyConstraint;
 import org.apache.flink.runtime.execution.ExecutionState;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.api.common.InputDependencyConstraint.ANY;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -80,6 +85,15 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 	@Override
 	public Iterable<TestingSchedulingResultPartition> getProducedResults() {
 		return producedPartitions;
+	}
+
+	@Override
+	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
+		return Collections.singletonList(new Group<>(
+			producedPartitions.stream()
+				.map(TestingSchedulingResultPartition::getId)
+				.collect(Collectors.toList()),
+			DistributionPattern.POINTWISE));
 	}
 
 	@Override
