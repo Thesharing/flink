@@ -18,9 +18,16 @@
 
 package org.apache.flink.runtime.scheduler.strategy;
 
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.adapter.DefaultResultPartition;
+import org.apache.flink.runtime.topology.Group;
+
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -62,5 +69,15 @@ public class TestingSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 	@Override
 	public Iterable<TestingSchedulingResultPartition> getConsumedResults() {
 		return Collections.unmodifiableSet(consumedPartitions);
+	}
+
+	@Override
+	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
+		throw new NotImplementedException();
+	}
+
+	@Override
+	public DefaultResultPartition getResultPartition(IntermediateResultPartitionID id) {
+		throw new NotImplementedException();
 	}
 }

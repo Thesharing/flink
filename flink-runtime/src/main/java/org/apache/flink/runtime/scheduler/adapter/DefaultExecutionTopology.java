@@ -77,7 +77,9 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 		this.resultPartitionsById = checkNotNull(executionGraphIndex.resultPartitionsById);
 
 		IndexedPipelinedRegions indexedPipelinedRegions =
-			computePipelinedRegions(executionGraphIndex.executionVerticesList);
+			computePipelinedRegions(
+				executionGraphIndex.executionVerticesList,
+				executionGraphIndex.resultPartitionsById);
 
 		ensureCoLocatedVerticesInSameRegion(
 			indexedPipelinedRegions.pipelinedRegions,
@@ -203,7 +205,8 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 	}
 
 	private static IndexedPipelinedRegions computePipelinedRegions(
-			Iterable<DefaultExecutionVertex> topologicallySortedVertexes) {
+			Iterable<DefaultExecutionVertex> topologicallySortedVertexes,
+			Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionsById) {
 		long buildRegionsStartTime = System.nanoTime();
 
 		Set<Set<SchedulingExecutionVertex>> rawPipelinedRegions =
@@ -215,8 +218,9 @@ public class DefaultExecutionTopology implements SchedulingTopology {
 
 		for (Set<? extends SchedulingExecutionVertex> rawPipelinedRegion : rawPipelinedRegions) {
 			//noinspection unchecked
-			final DefaultSchedulingPipelinedRegion pipelinedRegion =
-				new DefaultSchedulingPipelinedRegion((Set<DefaultExecutionVertex>) rawPipelinedRegion);
+			final DefaultSchedulingPipelinedRegion pipelinedRegion = new DefaultSchedulingPipelinedRegion(
+				(Set<DefaultExecutionVertex>) rawPipelinedRegion,
+				resultPartitionsById);
 			pipelinedRegions.add(pipelinedRegion);
 
 			for (SchedulingExecutionVertex executionVertex : rawPipelinedRegion) {

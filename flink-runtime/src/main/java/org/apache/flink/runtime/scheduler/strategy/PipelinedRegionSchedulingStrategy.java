@@ -24,6 +24,7 @@ import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.DeploymentOption;
 import org.apache.flink.runtime.scheduler.ExecutionVertexDeploymentOption;
 import org.apache.flink.runtime.scheduler.SchedulerOperations;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.IterableUtils;
 
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
 	private final DeploymentOption deploymentOption = new DeploymentOption(false);
 
 	/** Result partitions are correlated if they have the same result id. */
-	private final Map<IntermediateDataSetID, Set<SchedulingResultPartition>> correlatedResultPartitions = new HashMap<>();
+	private final Map<IntermediateDataSetID, Set<IntermediateResultPartitionID>> correlatedResultPartitions = new HashMap<>();
 
 	private final Map<IntermediateResultPartitionID, Set<SchedulingPipelinedRegion>> partitionConsumerRegions = new HashMap<>();
 
@@ -67,12 +68,20 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
 	}
 
 	private void init() {
+		Map<Group<IntermediateResultPartitionID>, Set<SchedulingPipelinedRegion>> groupConsumer = new HashMap<>();
 		for (SchedulingPipelinedRegion region : schedulingTopology.getAllPipelinedRegions()) {
-			for (SchedulingResultPartition partition : region.getConsumedResults()) {
+			for (Group<IntermediateResultPartitionID> partitionIds : region.getGroupedConsumedResults()) {
+				SchedulingResultPartition partition = region.getResultPartition(partitionIds.getItems().get(0));
 				checkState(partition.getResultType().isBlocking());
 
-				partitionConsumerRegions.computeIfAbsent(partition.getId(), pid -> new HashSet<>()).add(region);
-				correlatedResultPartitions.computeIfAbsent(partition.getResultId(), rid -> new HashSet<>()).add(partition);
+				groupConsumer.computeIfAbsent(partitionIds, group -> new HashSet<>()).add(region);
+			}
+		}
+
+		for (Map.Entry<Group<IntermediateResultPartitionID>, Set<SchedulingPipelinedRegion>> entry : groupConsumer.entrySet()) {
+			for (IntermediateResultPartitionID partitionId : entry.getKey().getItems()) {
+				partitionConsumerRegions.computeIfAbsent(partitionId, pid -> new HashSet<>()).addAll(entry.getValue());
+				correlatedResultPartitions.computeIfAbsent(partitionId.getIntermediateDataSetID(), rid -> new HashSet<>()).add(partitionId);
 			}
 		}
 
@@ -102,7 +111,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
 	@Override
 	public void onExecutionStateChange(final ExecutionVertexID executionVertexId, final ExecutionState executionState) {
 		if (executionState == ExecutionState.FINISHED) {
-			final Set<SchedulingResultPartition> finishedPartitions = IterableUtils
+			final Set<IntermediateResultPartitionID> finishedPartitions = IterableUtils
 				.toStream(schedulingTopology.getVertex(executionVertexId).getProducedResults())
 				.filter(partition -> partitionConsumerRegions.containsKey(partition.getId()))
 				.filter(partition -> partition.getState() == ResultPartitionState.CONSUMABLE)
@@ -110,7 +119,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
 				.collect(Collectors.toSet());
 
 			final Set<SchedulingPipelinedRegion> consumerRegions = finishedPartitions.stream()
-				.flatMap(partition -> partitionConsumerRegions.get(partition.getId()).stream())
+				.flatMap(partitionId -> partitionConsumerRegions.get(partitionId).stream())
 				.collect(Collectors.toSet());
 			maybeScheduleRegions(consumerRegions);
 		}
