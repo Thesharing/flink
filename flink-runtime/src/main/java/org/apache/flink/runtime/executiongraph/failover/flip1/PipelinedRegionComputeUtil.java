@@ -86,7 +86,7 @@ public final class PipelinedRegionComputeUtil {
 		return vertexToRegion;
 	}
 
-	private static <V extends Vertex<?, ?, V, ?>> Set<V> mergeRegions(
+	public static <V extends Vertex<?, ?, V, ?>> Set<V> mergeRegions(
 			final Set<V> region1,
 			final Set<V> region2,
 			final Map<V, Set<V>> vertexToRegion) {
@@ -108,13 +108,13 @@ public final class PipelinedRegionComputeUtil {
 		return largerSet;
 	}
 
-	private static <V extends Vertex<?, ?, V, ?>> Set<Set<V>> uniqueRegions(final Map<V, Set<V>> vertexToRegion) {
+	public static <V extends Vertex<?, ?, V, ?>> Set<Set<V>> uniqueRegions(final Map<V, Set<V>> vertexToRegion) {
 		final Set<Set<V>> distinctRegions = Collections.newSetFromMap(new IdentityHashMap<>());
 		distinctRegions.addAll(vertexToRegion.values());
 		return distinctRegions;
 	}
 
-	private static <V extends Vertex<?, ?, V, R>, R extends Result<?, ?, V, R>> Set<Set<V>> mergeRegionsOnCycles(
+	public static <V extends Vertex<?, ?, V, R>, R extends Result<?, ?, V, R>> Set<Set<V>> mergeRegionsOnCycles(
 			final Map<V, Set<V>> vertexToRegion) {
 
 		final List<Set<V>> regionList = uniqueRegions(vertexToRegion).stream().collect(Collectors.toList());

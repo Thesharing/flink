@@ -27,6 +27,7 @@ import org.apache.flink.runtime.topology.Group;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.function.Supplier;
 
@@ -45,19 +46,23 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	private final InputDependencyConstraint inputDependencyConstraint;
 
-	private final DefaultExecutionTopology topology;
+	private final List<Group<IntermediateResultPartitionID>> consumedPartitionIds;
+
+	private final Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionById;
 
 	DefaultExecutionVertex(
 			ExecutionVertexID executionVertexId,
 			List<DefaultResultPartition> producedPartitions,
 			Supplier<ExecutionState> stateSupplier,
 			InputDependencyConstraint constraint,
-			DefaultExecutionTopology topology) {
+			List<Group<IntermediateResultPartitionID>> consumedPartitionIds,
+			Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionById) {
 		this.executionVertexId = checkNotNull(executionVertexId);
 		this.stateSupplier = checkNotNull(stateSupplier);
 		this.producedResults = checkNotNull(producedPartitions);
 		this.inputDependencyConstraint = checkNotNull(constraint);
-		this.topology = topology;
+		this.consumedPartitionIds = consumedPartitionIds;
+		this.resultPartitionById = resultPartitionById;
 	}
 
 	@Override
@@ -98,7 +103,7 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 			@Override
 			public DefaultResultPartition next() {
 				if (hasNext()) {
-					return topology.getResultPartition(
+					return getResultPartition(
 						consumers.get(groupIdx).getItems().get(idx++));
 				} else {
 					throw new NoSuchElementException();
@@ -109,7 +114,11 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
 	@Override
 	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
-		return topology.getEdgeManager().getVertexConsumedPartitions(executionVertexId);
+		return consumedPartitionIds;
+	}
+
+	public DefaultResultPartition getResultPartition(IntermediateResultPartitionID id) {
+		return resultPartitionById.get(id);
 	}
 
 	@Override

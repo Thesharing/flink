@@ -41,7 +41,9 @@ public final class StronglyConnectedComponentsComputeUtils {
 	private StronglyConnectedComponentsComputeUtils() {
 	}
 
-	static Set<Set<Integer>> computeStronglyConnectedComponents(final int numVertex, final List<List<Integer>> outEdges) {
+	public static Set<Set<Integer>> computeStronglyConnectedComponents(
+		final int numVertex,
+		final List<List<Integer>> outEdges) {
 		final Set<Set<Integer>> stronglyConnectedComponents = new HashSet<>();
 
 		// a vertex will be added into this stack when it is visited for the first time

@@ -72,6 +72,7 @@ public class DefaultSchedulingPipelinedRegionTest extends TestLogger {
 			Collections.emptyList(),
 			() -> ExecutionState.CREATED,
 			InputDependencyConstraint.ANY,
+			null,
 			null);
 
 		final Set<DefaultExecutionVertex> vertices = Collections.singleton(vertex);

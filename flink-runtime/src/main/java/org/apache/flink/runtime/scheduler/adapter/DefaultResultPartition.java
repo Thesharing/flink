@@ -26,10 +26,11 @@ import org.apache.flink.runtime.scheduler.strategy.ResultPartitionState;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.topology.Group;
 
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -48,19 +49,24 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	private DefaultExecutionVertex producer;
 
-	private DefaultExecutionTopology topology;
+	private final List<Group<ExecutionVertexID>> consumerIds;
+
+	private final Map<ExecutionVertexID, DefaultExecutionVertex> executionVertexById;
 
 	DefaultResultPartition(
 		IntermediateResultPartitionID partitionId,
 		IntermediateDataSetID intermediateDataSetId,
 		ResultPartitionType partitionType,
 		Supplier<ResultPartitionState> resultPartitionStateSupplier,
-		DefaultExecutionTopology topology) {
+		List<Group<ExecutionVertexID>> consumerIds,
+		Map<ExecutionVertexID, DefaultExecutionVertex> executionVertexById) {
+
 		this.resultPartitionId = checkNotNull(partitionId);
 		this.intermediateDataSetId = checkNotNull(intermediateDataSetId);
 		this.partitionType = checkNotNull(partitionType);
 		this.resultPartitionStateSupplier = checkNotNull(resultPartitionStateSupplier);
-		this.topology = topology;
+		this.consumerIds = consumerIds;
+		this.executionVertexById = executionVertexById;
 	}
 
 	@Override
@@ -90,13 +96,13 @@ class DefaultResultPartition implements SchedulingResultPartition {
 
 	@Override
 	public Iterable<DefaultExecutionVertex> getConsumers() {
-		return getGroupedConsumers()
+		/* return getGroupedConsumers()
 			.stream()
 			.map(Group::getItems)
 			.flatMap(Collection::stream)
 			.map(topology::getVertex)
-			.collect(Collectors.toList());
-		/* final List<Group<ExecutionVertexID>> consumers = getGroupedConsumers();
+			.collect(Collectors.toList()); */
+		final List<Group<ExecutionVertexID>> consumers = getGroupedConsumers();
 
 		return () -> new Iterator<DefaultExecutionVertex>() {
 			private int groupIdx = 0;
@@ -116,18 +122,21 @@ class DefaultResultPartition implements SchedulingResultPartition {
 			@Override
 			public DefaultExecutionVertex next() {
 				if (hasNext()) {
-					return topology.getVertex(
-						consumers.get(groupIdx).getItems().get(idx++));
+					return getVertex(consumers.get(groupIdx).getItems().get(idx++));
 				} else {
 					throw new NoSuchElementException();
 				}
 			}
-		}; */
+		};
 	}
 
 	@Override
 	public List<Group<ExecutionVertexID>> getGroupedConsumers() {
-		return topology.getEdgeManager().getPartitionConsumers(resultPartitionId);
+		return consumerIds;
+	}
+
+	public DefaultExecutionVertex getVertex(ExecutionVertexID id) {
+		return executionVertexById.get(id);
 	}
 
 	void setProducer(DefaultExecutionVertex vertex) {

@@ -25,6 +25,7 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ResultPartitionState;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.IterableUtils;
 import org.apache.flink.util.TestLogger;
 
@@ -33,6 +34,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import static org.apache.flink.api.common.InputDependencyConstraint.ANY;
@@ -62,12 +65,21 @@ public class DefaultExecutionVertexTest extends TestLogger {
 			new IntermediateDataSetID(),
 			BLOCKING,
 			() -> ResultPartitionState.CREATED,
+			null,
 			null);
+
+		List<Group<IntermediateResultPartitionID>> consumedPartitionIds =
+			Collections.singletonList(
+				new Group<>(Collections.singletonList(intermediateResultPartitionId)));
+		Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionById =
+			Collections.singletonMap(intermediateResultPartitionId, schedulingResultPartition);
+
 		producerVertex = new DefaultExecutionVertex(
 			new ExecutionVertexID(new JobVertexID(), 0),
 			Collections.singletonList(schedulingResultPartition),
 			stateSupplier,
 			ANY,
+			null,
 			null);
 		schedulingResultPartition.setProducer(producerVertex);
 		consumerVertex = new DefaultExecutionVertex(
@@ -75,7 +87,8 @@ public class DefaultExecutionVertexTest extends TestLogger {
 			Collections.emptyList(),
 			stateSupplier,
 			ANY,
-			null);
+			consumedPartitionIds,
+			resultPartitionById);
 	}
 
 	@Test

@@ -30,7 +30,7 @@ import java.util.List;
 /**
  * Scheduling representation of {@link ExecutionVertex}.
  */
-public interface SchedulingExecutionVertex
+public interface  SchedulingExecutionVertex
 	extends Vertex<ExecutionVertexID, IntermediateResultPartitionID, SchedulingExecutionVertex, SchedulingResultPartition> {
 
 	/**

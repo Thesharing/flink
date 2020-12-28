@@ -1,5 +1,6 @@
 package org.apache.flink.runtime.topology;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 
 import java.util.ArrayList;
@@ -11,6 +12,11 @@ import java.util.List;
 public class Group<E> {
 	private final List<E> items;
 	private final DistributionPattern distributionPattern;
+
+	@VisibleForTesting
+	public Group(List<E> items) {
+		this(items, null);
+	}
 
 	public Group(DistributionPattern distributionPattern) {
 		this(new ArrayList<>(), distributionPattern);

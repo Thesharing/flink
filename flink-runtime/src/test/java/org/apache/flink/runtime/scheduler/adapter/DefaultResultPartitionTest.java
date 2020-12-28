@@ -50,6 +50,7 @@ public class DefaultResultPartitionTest extends TestLogger {
 			intermediateResultId,
 			BLOCKING,
 			resultPartitionState,
+			null,
 			null);
 	}
 
