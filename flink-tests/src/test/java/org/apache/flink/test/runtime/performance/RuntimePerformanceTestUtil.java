@@ -9,6 +9,7 @@ import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.blob.VoidBlobWriter;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
+import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.AccessExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.AccessExecutionVertex;
@@ -18,6 +19,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.JobInformation;
 import org.apache.flink.runtime.executiongraph.NoOpExecutionDeploymentListener;
 import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.RegionPartitionReleaseStrategy;
+import org.apache.flink.runtime.executiongraph.utils.SimpleSlotProvider;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
@@ -122,7 +124,34 @@ public class RuntimePerformanceTestUtil {
 			.collect(Collectors.toList());
 	}
 
+	public static ExecutionGraph createAndInitExecutionGraph(
+		int parallelism,
+		DistributionPattern distributionPattern,
+		ResultPartitionType resultPartitionType,
+		ScheduleMode scheduleMode,
+		ExecutionMode executionMode) throws Exception {
+
+		final List<JobVertex> jobVertices = createDefaultJobVertices(
+			parallelism,
+			distributionPattern,
+			resultPartitionType);
+
+		final JobGraph jobGraph = createJobGraph(
+			jobVertices,
+			scheduleMode,
+			executionMode);
+
+		final SlotProvider slotProvider = new SimpleSlotProvider(2 * parallelism);
+
+		final ExecutionGraph eg = createExecutionGraph(jobGraph, slotProvider);
+
+		eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+
+		return eg;
+	}
+
 	public static void startScheduling(final SchedulerNG scheduler) {
+		scheduler.initialize(ComponentMainThreadExecutorServiceAdapter.forMainThread());
 		scheduler.startScheduling();
 	}
 
