@@ -21,7 +21,6 @@ package org.apache.flink.runtime.scheduler.strategy;
 
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.apache.flink.runtime.scheduler.adapter.DefaultResultPartition;
 import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.runtime.topology.PipelinedRegion;
 
@@ -38,5 +37,5 @@ public interface SchedulingPipelinedRegion extends PipelinedRegion<ExecutionVert
 	 */
 	List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults();
 
-	DefaultResultPartition getResultPartition(IntermediateResultPartitionID id);
+	SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id);
 }

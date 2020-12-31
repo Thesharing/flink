@@ -23,6 +23,7 @@ import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ResultPartitionState;
+import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.topology.Group;
 
@@ -122,7 +123,8 @@ public class DefaultResultPartition implements SchedulingResultPartition {
 			@Override
 			public DefaultExecutionVertex next() {
 				if (hasNext()) {
-					return getVertex(consumers.get(groupIdx).getItems().get(idx++));
+					return (DefaultExecutionVertex) getVertex(
+						consumers.get(groupIdx).getItems().get(idx++));
 				} else {
 					throw new NoSuchElementException();
 				}
@@ -135,7 +137,8 @@ public class DefaultResultPartition implements SchedulingResultPartition {
 		return consumerIds;
 	}
 
-	public DefaultExecutionVertex getVertex(ExecutionVertexID id) {
+	@Override
+	public SchedulingExecutionVertex getVertex(ExecutionVertexID id) {
 		return executionVertexById.get(id);
 	}
 

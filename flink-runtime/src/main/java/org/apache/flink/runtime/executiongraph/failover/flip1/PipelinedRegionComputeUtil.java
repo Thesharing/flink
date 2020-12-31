@@ -155,7 +155,7 @@ public final class PipelinedRegionComputeUtil {
 					if (producedResult.getResultType().isPipelined()) {
 						continue;
 					}
-					for (V consumerVertex : producedResult.getConsumers()) { //TODO: WORRIED!
+					for (V consumerVertex : producedResult.getConsumers()) {
 						if (!currentRegion.contains(consumerVertex)) {
 							currentRegionOutEdges.add(regionIndices.get(vertexToRegion.get(consumerVertex)));
 						}

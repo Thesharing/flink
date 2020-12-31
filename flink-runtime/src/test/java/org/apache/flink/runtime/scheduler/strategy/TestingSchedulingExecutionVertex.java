@@ -20,15 +20,15 @@ package org.apache.flink.runtime.scheduler.strategy;
 
 import org.apache.flink.api.common.InputDependencyConstraint;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.api.common.InputDependencyConstraint.ANY;
@@ -41,11 +41,13 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 
 	private final ExecutionVertexID executionVertexId;
 
-	private final Collection<TestingSchedulingResultPartition> consumedPartitions;
+	private final List<Group<IntermediateResultPartitionID>> consumerPartitions;
 
 	private final Collection<TestingSchedulingResultPartition> producedPartitions;
 
 	private final InputDependencyConstraint inputDependencyConstraint;
+
+	private final Map<IntermediateResultPartitionID, TestingSchedulingResultPartition> resultPartitionsById;
 
 	private ExecutionState executionState;
 
@@ -53,13 +55,15 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 			JobVertexID jobVertexId,
 			int subtaskIndex,
 			InputDependencyConstraint constraint,
-			Collection<TestingSchedulingResultPartition> consumedPartitions,
+			List<Group<IntermediateResultPartitionID>> consumerPartitions,
+			Map<IntermediateResultPartitionID, TestingSchedulingResultPartition> resultPartitionsById,
 			ExecutionState executionState) {
 
 		this.executionVertexId = new ExecutionVertexID(jobVertexId, subtaskIndex);
 		this.inputDependencyConstraint = constraint;
-		this.consumedPartitions = checkNotNull(consumedPartitions);
+		this.consumerPartitions = checkNotNull(consumerPartitions);
 		this.producedPartitions = new ArrayList<>();
+		this.resultPartitionsById = checkNotNull(resultPartitionsById);
 		this.executionState = executionState;
 	}
 
@@ -79,7 +83,11 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 
 	@Override
 	public Iterable<TestingSchedulingResultPartition> getConsumedResults() {
-		return consumedPartitions;
+		return consumerPartitions.stream()
+			.map(Group::getItems)
+			.flatMap(Collection::stream)
+			.map(resultPartitionsById::get)
+			.collect(Collectors.toList());
 	}
 
 	@Override
@@ -89,11 +97,12 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 
 	@Override
 	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
-		return Collections.singletonList(new Group<>(
-			producedPartitions.stream()
-				.map(TestingSchedulingResultPartition::getId)
-				.collect(Collectors.toList()),
-			DistributionPattern.POINTWISE));
+		return consumerPartitions;
+	}
+
+	@Override
+	public SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id){
+		return resultPartitionsById.get(id);
 	}
 
 	@Override
@@ -101,8 +110,14 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 		return inputDependencyConstraint;
 	}
 
-	void addConsumedPartition(TestingSchedulingResultPartition partition) {
-		consumedPartitions.add(partition);
+	void addConsumedPartition(Group<TestingSchedulingResultPartition> consumedPartitionGroup) {
+		Group<IntermediateResultPartitionID> idGroup = new Group<>(new ArrayList<>(
+			consumedPartitionGroup.getItems().size()));
+		for (TestingSchedulingResultPartition partition : consumedPartitionGroup.getItems()) {
+			idGroup.getItems().add(partition.getId());
+			this.resultPartitionsById.putIfAbsent(partition.getId(), partition);
+		}
+		this.consumerPartitions.add(idGroup);
 	}
 
 	void addProducedPartition(TestingSchedulingResultPartition partition) {
@@ -126,7 +141,8 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 		private JobVertexID jobVertexId = new JobVertexID();
 		private int subtaskIndex = 0;
 		private InputDependencyConstraint inputDependencyConstraint = ANY;
-		private List<TestingSchedulingResultPartition> partitions = new ArrayList<>();
+		private List<Group<IntermediateResultPartitionID>> partitions = new ArrayList<>();
+		private Map<IntermediateResultPartitionID, TestingSchedulingResultPartition> resultPartitionsById = new HashMap<>();
 		private ExecutionState executionState = ExecutionState.CREATED;
 
 		Builder withExecutionVertexID(JobVertexID jobVertexId, int subtaskIndex) {
@@ -140,8 +156,26 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 			return this;
 		}
 
-		public Builder withConsumedPartitions(List<TestingSchedulingResultPartition> partitions) {
+		public Builder withConsumedPartitions(
+			List<Group<IntermediateResultPartitionID>> partitions,
+			Map<IntermediateResultPartitionID, TestingSchedulingResultPartition> resultPartitionsById) {
 			this.partitions = partitions;
+			this.resultPartitionsById = resultPartitionsById;
+			return this;
+		}
+
+		public Builder withConsumedPartitions(List<Group<TestingSchedulingResultPartition>> partitions) {
+			this.partitions = new ArrayList<>();
+			this.resultPartitionsById = new HashMap<>();
+
+			for (Group<TestingSchedulingResultPartition> partitionGroup : partitions) {
+				List<IntermediateResultPartitionID> ids = new ArrayList<>(partitionGroup.getItems().size());
+				this.partitions.add(new Group<>(ids));
+				for (TestingSchedulingResultPartition partition : partitionGroup.getItems()) {
+					ids.add(partition.getId());
+					this.resultPartitionsById.putIfAbsent(partition.getId(), partition);
+				}
+			}
 			return this;
 		}
 
@@ -156,6 +190,7 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
 					subtaskIndex,
 					inputDependencyConstraint,
 					partitions,
+					resultPartitionsById,
 					executionState);
 		}
 	}

@@ -52,4 +52,7 @@ public interface  SchedulingExecutionVertex
 	 * @return list of grouped intermediate result partition IDs
 	 */
 	List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults();
+
+	SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id);
+
 }

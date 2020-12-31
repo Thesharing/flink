@@ -26,6 +26,7 @@ import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingPipelinedRegion;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.ExceptionUtils;
 
 import org.slf4j.Logger;
@@ -154,6 +155,11 @@ public class RestartPipelinedRegionFailoverStrategy implements FailoverStrategy 
 		Set<SchedulingPipelinedRegion> regionsToRestart = Collections.newSetFromMap(new IdentityHashMap<>());
 		Set<SchedulingPipelinedRegion> visitedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
 
+		Set<Group<IntermediateResultPartitionID>> visitedConsumedResultGroups =
+			Collections.newSetFromMap(new IdentityHashMap<>());
+		Set<Group<ExecutionVertexID>> visitedConsumerVertexGroups =
+			Collections.newSetFromMap(new IdentityHashMap<>());
+
 		// start from the failed region to visit all involved regions
 		Queue<SchedulingPipelinedRegion> regionsToVisit = new ArrayDeque<>();
 		visitedRegions.add(failedRegion);
@@ -165,13 +171,19 @@ public class RestartPipelinedRegionFailoverStrategy implements FailoverStrategy 
 			regionsToRestart.add(regionToRestart);
 
 			// if a needed input result partition is not available, its producer region is involved
-			for (SchedulingExecutionVertex vertex : regionToRestart.getVertices()) {
-				for (SchedulingResultPartition consumedPartition : vertex.getConsumedResults()) {
-					if (!resultPartitionAvailabilityChecker.isAvailable(consumedPartition.getId())) {
-						SchedulingPipelinedRegion producerRegion = topology.getPipelinedRegionOfVertex(consumedPartition.getProducer().getId());
-						if (!visitedRegions.contains(producerRegion)) {
-							visitedRegions.add(producerRegion);
-							regionsToVisit.add(producerRegion);
+			for (Group<IntermediateResultPartitionID> consumedResultGroup : regionToRestart.getGroupedConsumedResults()) {
+				if (!visitedConsumedResultGroups.contains(consumedResultGroup)) {
+					visitedConsumedResultGroups.add(consumedResultGroup);
+					for (IntermediateResultPartitionID consumedPartitionId: consumedResultGroup.getItems()) {
+						if (!resultPartitionAvailabilityChecker.isAvailable(consumedPartitionId)) {
+							SchedulingResultPartition consumedPartition =
+								regionToRestart.getResultPartition(consumedPartitionId);
+							SchedulingPipelinedRegion producerRegion = topology.getPipelinedRegionOfVertex(
+								consumedPartition.getProducer().getId());
+							if (!visitedRegions.contains(producerRegion)) {
+								visitedRegions.add(producerRegion);
+								regionsToVisit.add(producerRegion);
+							}
 						}
 					}
 				}
@@ -180,11 +192,17 @@ public class RestartPipelinedRegionFailoverStrategy implements FailoverStrategy 
 			// all consumer regions of an involved region should be involved
 			for (SchedulingExecutionVertex vertex : regionToRestart.getVertices()) {
 				for (SchedulingResultPartition producedPartition : vertex.getProducedResults()) {
-					for (SchedulingExecutionVertex consumerVertex : producedPartition.getConsumers()) {
-						SchedulingPipelinedRegion consumerRegion = topology.getPipelinedRegionOfVertex(consumerVertex.getId());
-						if (!visitedRegions.contains(consumerRegion)) {
-							visitedRegions.add(consumerRegion);
-							regionsToVisit.add(consumerRegion);
+					for (Group<ExecutionVertexID> consumerVertexGroup : producedPartition.getGroupedConsumers()) {
+						if (!visitedConsumerVertexGroups.contains(consumerVertexGroup)) {
+							visitedConsumerVertexGroups.add(consumerVertexGroup);
+							for (ExecutionVertexID consumerVertexId : consumerVertexGroup.getItems()) {
+								SchedulingPipelinedRegion consumerRegion = topology.getPipelinedRegionOfVertex(
+									consumerVertexId);
+								if (!visitedRegions.contains(consumerRegion)) {
+									visitedRegions.add(consumerRegion);
+									regionsToVisit.add(consumerRegion);
+								}
+							}
 						}
 					}
 				}

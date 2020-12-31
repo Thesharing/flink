@@ -52,4 +52,6 @@ public interface SchedulingResultPartition
 	 * @return List of grouped Execution Vertex IDs.
 	 */
 	List<Group<ExecutionVertexID>> getGroupedConsumers();
+
+	SchedulingExecutionVertex getVertex(ExecutionVertexID id);
 }

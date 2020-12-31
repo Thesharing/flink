@@ -24,12 +24,15 @@ import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
+import org.apache.flink.runtime.topology.Group;
 
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -364,17 +367,21 @@ public class PointwisePatternTest {
 		for (ExecutionVertex ev : target.getTaskVertices()) {
 			assertEquals(1, ev.getNumberOfInputs());
 
-			List<IntermediateResultPartitionID> consumedPartitions = ev.getConsumedPartitions(0).getItems();
+			List<IntermediateResultPartitionID> consumedPartitions = ev
+				.getAllConsumedPartitions()
+				.stream()
+				.map(Group::getItems)
+				.flatMap(Collection::stream)
+				.collect(Collectors.toList());
 			assertTrue(
 				consumedPartitions.size() >= factor && consumedPartitions.size() <= factor + delta);
 
 			for (IntermediateResultPartitionID consumedPartition : consumedPartitions) {
 				timesUsed[consumedPartition.getPartitionNumber()]++;
 			}
-
-			for (int used : timesUsed) {
-				assertEquals(1, used);
-			}
+		}
+		for (int used : timesUsed) {
+			assertEquals(1, used);
 		}
 	}
 }

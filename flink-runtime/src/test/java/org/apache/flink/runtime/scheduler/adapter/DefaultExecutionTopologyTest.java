@@ -226,8 +226,12 @@ public class DefaultExecutionTopologyTest extends TestLogger {
 				.map(Group::getItems)
 				.flatMap(Collection::stream)
 				.collect(Collectors.toList());
-			List<ExecutionVertexID> adaptedConsumerIds =
-				adaptedPartition.getGroupedConsumers().get(0).getItems();
+			List<ExecutionVertexID> adaptedConsumerIds = adaptedPartition
+				.getGroupedConsumers()
+				.stream()
+				.map(Group::getItems)
+				.flatMap(Collection::stream)
+				.collect(Collectors.toList());
 
 			for (ExecutionVertexID originalConsumerId : originalConsumerIds) {
 				// it is sufficient to verify that some vertex exists with the correct ID here,

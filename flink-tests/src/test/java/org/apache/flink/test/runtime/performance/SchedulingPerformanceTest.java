@@ -1,7 +1,6 @@
 package org.apache.flink.test.runtime.performance;
 
 import org.apache.flink.api.common.ExecutionMode;
-import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.ScheduleMode;
@@ -13,7 +12,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.apache.flink.test.runtime.performance.RuntimePerformanceTestUtil.createAndInitExecutionGraph;
+import static org.apache.flink.test.runtime.performance.RuntimePerformanceTestUtil.createSchedulingTopology;
 
 /**
  * Performance test for task scheduling.
@@ -31,14 +30,12 @@ public class SchedulingPerformanceTest {
 	public void testInitPipelinedRegionSchedulingStrategyInStreamingJobPerformance() throws Exception {
 		schedulerOperations = new TestingSchedulerOperations();
 
-		ExecutionGraph eg = createAndInitExecutionGraph(
+		schedulingTopology = createSchedulingTopology(
 			PARALLELISM,
 			DistributionPattern.ALL_TO_ALL,
 			ResultPartitionType.PIPELINED,
 			ScheduleMode.EAGER,
 			ExecutionMode.PIPELINED);
-
-		schedulingTopology = eg.getSchedulingTopology();
 
 		final long startTime = System.nanoTime();
 
@@ -57,14 +54,12 @@ public class SchedulingPerformanceTest {
 	public void testInitPipelinedRegionSchedulingStrategyInBatchJobPerformance() throws Exception {
 		schedulerOperations = new TestingSchedulerOperations();
 
-		ExecutionGraph eg = createAndInitExecutionGraph(
+		schedulingTopology = createSchedulingTopology(
 			PARALLELISM,
 			DistributionPattern.ALL_TO_ALL,
 			ResultPartitionType.BLOCKING,
 			ScheduleMode.LAZY_FROM_SOURCES,
 			ExecutionMode.BATCH);
-
-		schedulingTopology = eg.getSchedulingTopology();
 
 		schedulingTopology.getAllPipelinedRegions();
 

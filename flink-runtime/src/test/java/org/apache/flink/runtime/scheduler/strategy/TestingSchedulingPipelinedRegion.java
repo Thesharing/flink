@@ -19,11 +19,9 @@
 package org.apache.flink.runtime.scheduler.strategy;
 
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.apache.flink.runtime.scheduler.adapter.DefaultResultPartition;
 import org.apache.flink.runtime.topology.Group;
 
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
-
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +38,10 @@ public class TestingSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 
 	private final Set<TestingSchedulingResultPartition> consumedPartitions = new HashSet<>();
 
+	private final List<Group<IntermediateResultPartitionID>> consumedGroupPartitions = new ArrayList<>();
+
+	private final Map<IntermediateResultPartitionID, TestingSchedulingResultPartition> resultPartitionsById = new HashMap<>();
+
 	public TestingSchedulingPipelinedRegion(final Set<TestingSchedulingExecutionVertex> vertices) {
 		for (TestingSchedulingExecutionVertex vertex : vertices) {
 			regionVertices.put(vertex.getId(), vertex);
@@ -47,6 +49,15 @@ public class TestingSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 			for (TestingSchedulingResultPartition consumedPartition : vertex.getConsumedResults()) {
 				if (!vertices.contains(consumedPartition.getProducer())) {
 					consumedPartitions.add(consumedPartition);
+				}
+				resultPartitionsById.putIfAbsent(consumedPartition.getId(), consumedPartition);
+			}
+			for (Group<IntermediateResultPartitionID> consumedGroup : vertex.getGroupedConsumedResults()) {
+				for (IntermediateResultPartitionID consumerId : consumedGroup.getItems()) {
+					if (!vertices.contains(vertex.getResultPartition(consumerId).getProducer())) {
+						consumedGroupPartitions.add(consumedGroup);
+					}
+					break;
 				}
 			}
 		}
@@ -61,7 +72,9 @@ public class TestingSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 	public TestingSchedulingExecutionVertex getVertex(ExecutionVertexID vertexId) {
 		final TestingSchedulingExecutionVertex executionVertex = regionVertices.get(vertexId);
 		if (executionVertex == null) {
-			throw new IllegalArgumentException(String.format("Execution vertex %s not found in pipelined region", vertexId));
+			throw new IllegalArgumentException(String.format(
+				"Execution vertex %s not found in pipelined region",
+				vertexId));
 		}
 		return executionVertex;
 	}
@@ -73,11 +86,11 @@ public class TestingSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 
 	@Override
 	public List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults() {
-		throw new NotImplementedException();
+		return consumedGroupPartitions;
 	}
 
 	@Override
-	public DefaultResultPartition getResultPartition(IntermediateResultPartitionID id) {
-		throw new NotImplementedException();
+	public SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id) {
+		return resultPartitionsById.get(id);
 	}
 }

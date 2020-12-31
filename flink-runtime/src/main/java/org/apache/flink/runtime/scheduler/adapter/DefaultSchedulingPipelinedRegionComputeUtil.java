@@ -19,18 +19,25 @@
 
 package org.apache.flink.runtime.scheduler.adapter;
 
+import org.apache.flink.runtime.executiongraph.failover.flip1.StronglyConnectedComponentsComputeUtils;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingPipelinedRegion;
+import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.topology.Group;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.apache.flink.runtime.executiongraph.failover.flip1.PipelinedRegionComputeUtil.mergeRegions;
-import static org.apache.flink.runtime.executiongraph.failover.flip1.PipelinedRegionComputeUtil.mergeRegionsOnCycles;
+import static org.apache.flink.runtime.executiongraph.failover.flip1.PipelinedRegionComputeUtil.uniqueRegions;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * Utility for computing {@link SchedulingPipelinedRegion}.
@@ -60,9 +67,9 @@ public final class DefaultSchedulingPipelinedRegionComputeUtil {
 				// is also considered as a single region. This attribute is called "reconnectable".
 				// reconnectable will be removed after FLINK-19895, see also {@link ResultPartitionType#isReconnectable}
 				for (IntermediateResultPartitionID consumerId : consumedResultIds.getItems()) {
-					DefaultResultPartition consumedResult = vertex.getResultPartition(consumerId);
+					SchedulingResultPartition consumedResult = vertex.getResultPartition(consumerId);
 					if (!consumedResult.getResultType().isReconnectable()) {
-						final DefaultExecutionVertex producerVertex = consumedResult.getProducer();
+						final SchedulingExecutionVertex producerVertex = consumedResult.getProducer();
 						final Set<SchedulingExecutionVertex> producerRegion = vertexToRegion.get(
 							producerVertex);
 
@@ -89,5 +96,62 @@ public final class DefaultSchedulingPipelinedRegionComputeUtil {
 			}
 		}
 		return vertexToRegion;
+	}
+
+	public static Set<Set<SchedulingExecutionVertex>> mergeRegionsOnCycles(
+		final Map<SchedulingExecutionVertex, Set<SchedulingExecutionVertex>> vertexToRegion) {
+
+		final List<Set<SchedulingExecutionVertex>> regionList = new ArrayList<>(uniqueRegions(vertexToRegion));
+		final List<List<Integer>> outEdges = buildOutEdgesDesc(vertexToRegion, regionList);
+		final Set<Set<Integer>> sccs = StronglyConnectedComponentsComputeUtils.computeStronglyConnectedComponents(
+			outEdges.size(),
+			outEdges);
+
+		final Set<Set<SchedulingExecutionVertex>> mergedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (Set<Integer> scc : sccs) {
+			checkState(scc.size() > 0);
+
+			Set<SchedulingExecutionVertex> mergedRegion = new HashSet<>();
+			for (int regionIndex : scc) {
+				mergedRegion = mergeRegions(mergedRegion, regionList.get(regionIndex), vertexToRegion);
+			}
+			mergedRegions.add(mergedRegion);
+		}
+
+		return mergedRegions;
+	}
+
+	private static List<List<Integer>> buildOutEdgesDesc(
+		final Map<SchedulingExecutionVertex, Set<SchedulingExecutionVertex>> vertexToRegion,
+		final List<Set<SchedulingExecutionVertex>> regionList) {
+
+		final Map<Set<SchedulingExecutionVertex>, Integer> regionIndices = new IdentityHashMap<>();
+		for (int i = 0; i < regionList.size(); i++) {
+			regionIndices.put(regionList.get(i), i);
+		}
+
+		final List<List<Integer>> outEdges = new ArrayList<>(regionList.size());
+		for (Set<SchedulingExecutionVertex> schedulingExecutionVertices : regionList) {
+			final List<Integer> currentRegionOutEdges = new ArrayList<>();
+			final Set<SchedulingExecutionVertex> currentRegion = schedulingExecutionVertices;
+			for (SchedulingExecutionVertex vertex : currentRegion) {
+				for (SchedulingResultPartition producedResult : vertex.getProducedResults()) {
+					if (producedResult.getResultType().isPipelined()) {
+						continue;
+					}
+					for (Group<ExecutionVertexID> consumerGroup : producedResult.getGroupedConsumers()) {
+						for (ExecutionVertexID consumerVertexId : consumerGroup.getItems()) {
+							SchedulingExecutionVertex consumerVertex = producedResult.getVertex(consumerVertexId);
+							if (!currentRegion.contains(consumerVertex)) {
+								currentRegionOutEdges.add(regionIndices.get(vertexToRegion.get(consumerVertex)));
+							}
+						}
+					}
+				}
+			}
+			outEdges.add(currentRegionOutEdges);
+		}
+
+		return outEdges;
 	}
 }

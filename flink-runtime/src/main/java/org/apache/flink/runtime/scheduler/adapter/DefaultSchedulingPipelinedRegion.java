@@ -23,6 +23,7 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingPipelinedRegion;
+import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.Preconditions;
 
@@ -107,7 +108,7 @@ public class DefaultSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 			@Override
 			public DefaultResultPartition next() {
 				if (hasNext()) {
-					return getResultPartition(
+					return (DefaultResultPartition) getResultPartition(
 						consumers.get(groupIdx).getItems().get(idx++));
 				} else {
 					throw new NoSuchElementException();
@@ -121,7 +122,7 @@ public class DefaultSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 		for (DefaultExecutionVertex executionVertex : executionVertices.values()) {
 			for (Group<IntermediateResultPartitionID> consumedResultIds :
 				executionVertex.getGroupedConsumedResults()) {
-				DefaultResultPartition resultPartition = executionVertex.getResultPartition(
+				SchedulingResultPartition resultPartition = executionVertex.getResultPartition(
 					consumedResultIds.getItems().get(0));
 				if (!executionVertices.containsKey(resultPartition.getProducer().getId())) {
 					consumedResults.add(consumedResultIds);
@@ -142,7 +143,7 @@ public class DefaultSchedulingPipelinedRegion implements SchedulingPipelinedRegi
 	}
 
 	@Override
-	public DefaultResultPartition getResultPartition(IntermediateResultPartitionID id) {
+	public SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id) {
 		return resultPartitionsById.get(id);
 	}
 }

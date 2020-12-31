@@ -16,8 +16,10 @@ import org.apache.flink.runtime.executiongraph.AccessExecutionVertex;
 import org.apache.flink.runtime.executiongraph.DummyJobInformation;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
+import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.JobInformation;
 import org.apache.flink.runtime.executiongraph.NoOpExecutionDeploymentListener;
+import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
 import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.RegionPartitionReleaseStrategy;
 import org.apache.flink.runtime.executiongraph.utils.SimpleSlotProvider;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
@@ -25,10 +27,14 @@ import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
+import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.ScheduleMode;
+import org.apache.flink.runtime.jobmaster.LogicalSlot;
+import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotProvider;
 import org.apache.flink.runtime.scheduler.DefaultScheduler;
 import org.apache.flink.runtime.scheduler.SchedulerNG;
+import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
 import org.apache.flink.runtime.shuffle.NettyShuffleMaster;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
@@ -150,6 +156,21 @@ public class RuntimePerformanceTestUtil {
 		return eg;
 	}
 
+	public static SchedulingTopology createSchedulingTopology(
+		int parallelism,
+		DistributionPattern distributionPattern,
+		ResultPartitionType resultPartitionType,
+		ScheduleMode scheduleMode,
+		ExecutionMode executionMode) throws Exception {
+		ExecutionGraph eg = createAndInitExecutionGraph(
+			parallelism,
+			distributionPattern,
+			resultPartitionType,
+			scheduleMode,
+			executionMode);
+		return eg.getSchedulingTopology();
+	}
+
 	public static void startScheduling(final SchedulerNG scheduler) {
 		scheduler.initialize(ComponentMainThreadExecutorServiceAdapter.forMainThread());
 		scheduler.startScheduling();
@@ -184,6 +205,35 @@ public class RuntimePerformanceTestUtil {
 		}
 	}
 
+	public static void deployTasks(
+		ExecutionGraph executionGraph,
+		JobVertexID jobVertexID,
+		TestingLogicalSlotBuilder slotBuilder,
+		boolean sendScheduleOrUpdateConsumersMessage) throws Exception {
+
+		for (ExecutionVertex vertex : executionGraph.getJobVertex(jobVertexID).getTaskVertices()) {
+			LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
+			vertex.deployToSlot(slot);
+			vertex.getCurrentExecutionAttempt()
+				.registerProducedPartitions(
+					slot.getTaskManagerLocation(),
+					sendScheduleOrUpdateConsumersMessage).get();
+		}
+	}
+
+	public static void deployAllTasks(
+		ExecutionGraph executionGraph,
+		TestingLogicalSlotBuilder slotBuilder) throws Exception {
+
+		for (ExecutionVertex vertex : executionGraph.getAllExecutionVertices()) {
+			LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
+			vertex.deployToSlot(slot);
+			vertex.getCurrentExecutionAttempt()
+				.registerProducedPartitions(slot.getTaskManagerLocation(), true)
+				.get();
+		}
+	}
+
 	public static void transitionTaskStatus(
 		DefaultScheduler scheduler,
 		AccessExecutionJobVertex vertex,
@@ -198,6 +248,32 @@ public class RuntimePerformanceTestUtil {
 				scheduler.getJobGraph().getJobID(),
 				attemptId,
 				executionState));
+	}
+
+	public static void transitionTaskStatus(
+		ExecutionGraph executionGraph,
+		JobVertexID jobVertexID,
+		ExecutionState state) {
+
+		for (ExecutionVertex vertex : executionGraph
+			.getJobVertex(jobVertexID)
+			.getTaskVertices()) {
+			executionGraph.updateState(new TaskExecutionStateTransition(new TaskExecutionState(
+				executionGraph.getJobID(),
+				vertex.getCurrentExecutionAttempt().getAttemptId(),
+				state)));
+		}
+	}
+
+	public static void transitionAllTaskStatus(
+		ExecutionGraph executionGraph,
+		ExecutionState state) {
+		for (ExecutionVertex vertex : executionGraph.getAllExecutionVertices()) {
+			executionGraph.updateState(new TaskExecutionStateTransition(new TaskExecutionState(
+				executionGraph.getJobID(),
+				vertex.getCurrentExecutionAttempt().getAttemptId(),
+				state)));
+		}
 	}
 
 	public static void transitionAllTaskStatus(
