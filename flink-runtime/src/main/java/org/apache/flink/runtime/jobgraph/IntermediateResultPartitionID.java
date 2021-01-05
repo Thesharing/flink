@@ -54,7 +54,7 @@ public class IntermediateResultPartitionID implements ResultID {
         this.partitionNum = partitionNum;
     }
 
-    public int getPartitionNum() {
+    public int getPartitionNumber() {
         return partitionNum;
     }
 

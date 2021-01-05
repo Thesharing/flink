@@ -27,6 +27,7 @@ import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
+import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
@@ -36,12 +37,14 @@ import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.Test;
 
 import java.net.InetAddress;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.getExecutionVertex;
@@ -50,8 +53,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 public class ExecutionVertexDeploymentTest extends TestLogger {
 
@@ -293,10 +294,10 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
             TaskDeploymentDescriptorFactory tddFactory =
                     TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, 1);
 
-            ExecutionEdge mockEdge = createMockExecutionEdge(1);
-
-            result.getPartitions()[0].addConsumerGroup();
-            result.getPartitions()[0].addConsumer(mockEdge, 0);
+            result.getPartitions()[0].setConsumers(
+                    new Group<>(
+                            Collections.singletonList(vertex.getID()),
+                            DistributionPattern.POINTWISE));
 
             TaskManagerLocation location =
                     new TaskManagerLocation(
@@ -322,17 +323,5 @@ public class ExecutionVertexDeploymentTest extends TestLogger {
             ResultPartitionDeploymentDescriptor desc = producedPartitions.iterator().next();
             assertEquals(scheduleMode.allowLazyDeployment(), desc.notifyPartitionDataAvailable());
         }
-    }
-
-    private ExecutionEdge createMockExecutionEdge(int maxParallelism) {
-        ExecutionVertex targetVertex = mock(ExecutionVertex.class);
-        ExecutionJobVertex targetJobVertex = mock(ExecutionJobVertex.class);
-
-        when(targetVertex.getJobVertex()).thenReturn(targetJobVertex);
-        when(targetJobVertex.getMaxParallelism()).thenReturn(maxParallelism);
-
-        ExecutionEdge edge = mock(ExecutionEdge.class);
-        when(edge.getTarget()).thenReturn(targetVertex);
-        return edge;
     }
 }
