@@ -21,9 +21,14 @@ package org.apache.flink.runtime.scheduler.strategy;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -38,17 +43,24 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
 
     private TestingSchedulingExecutionVertex producer;
 
-    private Collection<TestingSchedulingExecutionVertex> consumers;
+    private List<Group<ExecutionVertexID>> consumers;
+
+    private final Map<ExecutionVertexID, TestingSchedulingExecutionVertex> executionVerticesById;
 
     private ResultPartitionState state;
 
     TestingSchedulingResultPartition(
-            IntermediateDataSetID dataSetID, ResultPartitionType type, ResultPartitionState state) {
+            IntermediateDataSetID dataSetID,
+            int partitionNum,
+            ResultPartitionType type,
+            ResultPartitionState state) {
         this.intermediateDataSetID = dataSetID;
         this.partitionType = type;
         this.state = state;
-        this.intermediateResultPartitionID = new IntermediateResultPartitionID();
+        this.intermediateResultPartitionID =
+                new IntermediateResultPartitionID(dataSetID, partitionNum);
         this.consumers = new ArrayList<>();
+        this.executionVerticesById = new HashMap<>();
     }
 
     @Override
@@ -78,11 +90,31 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
 
     @Override
     public Iterable<TestingSchedulingExecutionVertex> getConsumers() {
+        return consumers.stream()
+                .map(Group::getItems)
+                .flatMap(Collection::stream)
+                .map(executionVerticesById::get)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Group<ExecutionVertexID>> getGroupedConsumers() {
         return consumers;
     }
 
-    void addConsumer(TestingSchedulingExecutionVertex consumer) {
-        this.consumers.add(consumer);
+    @Override
+    public SchedulingExecutionVertex getVertex(ExecutionVertexID id) {
+        return executionVerticesById.get(id);
+    }
+
+    void addConsumer(Group<TestingSchedulingExecutionVertex> consumerGroup) {
+        Group<ExecutionVertexID> idGroup =
+                new Group<>(new ArrayList<>(consumerGroup.getItems().size()));
+        for (TestingSchedulingExecutionVertex vertex : consumerGroup.getItems()) {
+            idGroup.getItems().add(vertex.getId());
+            this.executionVerticesById.putIfAbsent(vertex.getId(), vertex);
+        }
+        this.consumers.add(idGroup);
     }
 
     void setProducer(TestingSchedulingExecutionVertex producer) {
@@ -98,6 +130,7 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
         private IntermediateDataSetID intermediateDataSetId = new IntermediateDataSetID();
         private ResultPartitionType resultPartitionType = ResultPartitionType.BLOCKING;
         private ResultPartitionState resultPartitionState = ResultPartitionState.CONSUMABLE;
+        private int partitionNum = 0;
 
         Builder withIntermediateDataSetID(IntermediateDataSetID intermediateDataSetId) {
             this.intermediateDataSetId = intermediateDataSetId;
@@ -116,7 +149,10 @@ public class TestingSchedulingResultPartition implements SchedulingResultPartiti
 
         TestingSchedulingResultPartition build() {
             return new TestingSchedulingResultPartition(
-                    intermediateDataSetId, resultPartitionType, resultPartitionState);
+                    intermediateDataSetId,
+                    partitionNum++,
+                    resultPartitionType,
+                    resultPartitionState);
         }
     }
 }
