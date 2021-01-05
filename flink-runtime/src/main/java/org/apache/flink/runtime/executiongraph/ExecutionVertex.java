@@ -30,15 +30,14 @@ import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.apache.flink.runtime.jobgraph.JobEdge;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.runtime.util.EvictingBoundedList;
 import org.apache.flink.util.ExceptionUtils;
 
@@ -78,8 +77,6 @@ public class ExecutionVertex
     private final ExecutionJobVertex jobVertex;
 
     private final Map<IntermediateResultPartitionID, IntermediateResultPartition> resultPartitions;
-
-    private final ExecutionEdge[][] inputEdges;
 
     private final int subTaskIndex;
 
@@ -141,7 +138,7 @@ public class ExecutionVertex
             resultPartitions.put(irp.getPartitionId(), irp);
         }
 
-        this.inputEdges = new ExecutionEdge[jobVertex.getJobVertex().getInputs().size()][];
+        getExecutionGraph().registerExecutionVertex(executionVertexId, this);
 
         this.priorExecutions = new EvictingBoundedList<>(maxPriorExecutionHistoryLength);
 
@@ -209,6 +206,10 @@ public class ExecutionVertex
         return this.jobVertex.getMaxParallelism();
     }
 
+    public int getParallelism() {
+        return this.jobVertex.getParallelism();
+    }
+
     public ResourceProfile getResourceProfile() {
         return this.jobVertex.getResourceProfile();
     }
@@ -223,19 +224,25 @@ public class ExecutionVertex
     }
 
     public int getNumberOfInputs() {
-        return this.inputEdges.length;
+        return getAllConsumedPartitions().size();
     }
 
-    public ExecutionEdge[] getInputEdges(int input) {
-        if (input < 0 || input >= inputEdges.length) {
+    public List<Group<IntermediateResultPartitionID>> getAllConsumedPartitions() {
+        return getExecutionGraph().getEdgeManager().getVertexConsumedPartitions(executionVertexId);
+    }
+
+    public Group<IntermediateResultPartitionID> getConsumedPartitions(int input) {
+        final List<Group<IntermediateResultPartitionID>> allConsumedPartitions =
+                getAllConsumedPartitions();
+
+        if (input < 0 || input >= allConsumedPartitions.size()) {
             throw new IllegalArgumentException(
-                    String.format("Input %d is out of range [0..%d)", input, inputEdges.length));
+                    String.format(
+                            "Input %d is out of range [0..%d)",
+                            input, allConsumedPartitions.size()));
         }
-        return inputEdges[input];
-    }
 
-    public ExecutionEdge[][] getAllInputEdges() {
-        return inputEdges;
+        return allConsumedPartitions.get(input);
     }
 
     public CoLocationConstraint getLocationConstraint() {
@@ -354,107 +361,12 @@ public class ExecutionVertex
     //  Graph building
     // --------------------------------------------------------------------------------------------
 
-    public void connectSource(
-            int inputNumber, IntermediateResult source, JobEdge edge, int consumerNumber) {
+    public void setConsumedPartitions(
+            Group<IntermediateResultPartitionID> consumedPartitions, int inputNum) {
 
-        final DistributionPattern pattern = edge.getDistributionPattern();
-        final IntermediateResultPartition[] sourcePartitions = source.getPartitions();
-
-        ExecutionEdge[] edges;
-
-        switch (pattern) {
-            case POINTWISE:
-                edges = connectPointwise(sourcePartitions, inputNumber);
-                break;
-
-            case ALL_TO_ALL:
-                edges = connectAllToAll(sourcePartitions, inputNumber);
-                break;
-
-            default:
-                throw new RuntimeException("Unrecognized distribution pattern.");
-        }
-
-        inputEdges[inputNumber] = edges;
-
-        // add the consumers to the source
-        // for now (until the receiver initiated handshake is in place), we need to register the
-        // edges as the execution graph
-        for (ExecutionEdge ee : edges) {
-            ee.getSource().addConsumer(ee, consumerNumber);
-        }
-    }
-
-    private ExecutionEdge[] connectAllToAll(
-            IntermediateResultPartition[] sourcePartitions, int inputNumber) {
-        ExecutionEdge[] edges = new ExecutionEdge[sourcePartitions.length];
-
-        for (int i = 0; i < sourcePartitions.length; i++) {
-            IntermediateResultPartition irp = sourcePartitions[i];
-            edges[i] = new ExecutionEdge(irp, this, inputNumber);
-        }
-
-        return edges;
-    }
-
-    private ExecutionEdge[] connectPointwise(
-            IntermediateResultPartition[] sourcePartitions, int inputNumber) {
-        final int numSources = sourcePartitions.length;
-        final int parallelism = getTotalNumberOfParallelSubtasks();
-
-        // simple case same number of sources as targets
-        if (numSources == parallelism) {
-            return new ExecutionEdge[] {
-                new ExecutionEdge(sourcePartitions[subTaskIndex], this, inputNumber)
-            };
-        } else if (numSources < parallelism) {
-
-            int sourcePartition;
-
-            // check if the pattern is regular or irregular
-            // we use int arithmetics for regular, and floating point with rounding for irregular
-            if (parallelism % numSources == 0) {
-                // same number of targets per source
-                int factor = parallelism / numSources;
-                sourcePartition = subTaskIndex / factor;
-            } else {
-                // different number of targets per source
-                float factor = ((float) parallelism) / numSources;
-                sourcePartition = (int) (subTaskIndex / factor);
-            }
-
-            return new ExecutionEdge[] {
-                new ExecutionEdge(sourcePartitions[sourcePartition], this, inputNumber)
-            };
-        } else {
-            if (numSources % parallelism == 0) {
-                // same number of targets per source
-                int factor = numSources / parallelism;
-                int startIndex = subTaskIndex * factor;
-
-                ExecutionEdge[] edges = new ExecutionEdge[factor];
-                for (int i = 0; i < factor; i++) {
-                    edges[i] =
-                            new ExecutionEdge(sourcePartitions[startIndex + i], this, inputNumber);
-                }
-                return edges;
-            } else {
-                float factor = ((float) numSources) / parallelism;
-
-                int start = (int) (subTaskIndex * factor);
-                int end =
-                        (subTaskIndex == getTotalNumberOfParallelSubtasks() - 1)
-                                ? sourcePartitions.length
-                                : (int) ((subTaskIndex + 1) * factor);
-
-                ExecutionEdge[] edges = new ExecutionEdge[end - start];
-                for (int i = 0; i < edges.length; i++) {
-                    edges[i] = new ExecutionEdge(sourcePartitions[start + i], this, inputNumber);
-                }
-
-                return edges;
-            }
-        }
+        getExecutionGraph()
+                .getEdgeManager()
+                .setVertexConsumedPartitions(executionVertexId, consumedPartitions, inputNum);
     }
 
     /**
@@ -526,8 +438,11 @@ public class ExecutionVertex
      *     input-based preference.
      */
     public Collection<CompletableFuture<TaskManagerLocation>> getPreferredLocationsBasedOnInputs() {
+        final List<Group<IntermediateResultPartitionID>> allConsumedPartitions =
+                getAllConsumedPartitions();
+
         // otherwise, base the preferred locations on the input connections
-        if (inputEdges == null) {
+        if (allConsumedPartitions == null) {
             return Collections.emptySet();
         } else {
             Set<CompletableFuture<TaskManagerLocation>> locations =
@@ -536,16 +451,15 @@ public class ExecutionVertex
                     new HashSet<>(getTotalNumberOfParallelSubtasks());
 
             // go over all inputs
-            for (int i = 0; i < inputEdges.length; i++) {
+            for (Group<IntermediateResultPartitionID> sources : allConsumedPartitions) {
                 inputLocations.clear();
-                ExecutionEdge[] sources = inputEdges[i];
                 if (sources != null) {
                     // go over all input sources
-                    for (int k = 0; k < sources.length; k++) {
+                    for (IntermediateResultPartitionID sourceId : sources.getItems()) {
                         // look-up assigned slot of input source
                         CompletableFuture<TaskManagerLocation> locationFuture =
-                                sources[k]
-                                        .getSource()
+                                getExecutionGraph()
+                                        .getResultPartition(sourceId)
                                         .getProducer()
                                         .getCurrentTaskManagerLocationFuture();
                         // add input location
@@ -783,7 +697,7 @@ public class ExecutionVertex
      * @return whether the input constraint is satisfied
      */
     boolean checkInputDependencyConstraints() {
-        if (inputEdges.length == 0) {
+        if (getNumberOfInputs() == 0) {
             return true;
         }
 
@@ -800,7 +714,7 @@ public class ExecutionVertex
     }
 
     private boolean isAnyInputConsumable() {
-        for (int inputNumber = 0; inputNumber < inputEdges.length; inputNumber++) {
+        for (int inputNumber = 0; inputNumber < getNumberOfInputs(); inputNumber++) {
             if (isInputConsumable(inputNumber)) {
                 return true;
             }
@@ -809,7 +723,7 @@ public class ExecutionVertex
     }
 
     private boolean areAllInputsConsumable() {
-        for (int inputNumber = 0; inputNumber < inputEdges.length; inputNumber++) {
+        for (int inputNumber = 0; inputNumber < getNumberOfInputs(); inputNumber++) {
             if (!isInputConsumable(inputNumber)) {
                 return false;
             }
@@ -827,8 +741,9 @@ public class ExecutionVertex
      * @return whether the input is consumable
      */
     boolean isInputConsumable(int inputNumber) {
-        for (ExecutionEdge executionEdge : inputEdges[inputNumber]) {
-            if (executionEdge.getSource().isConsumable()) {
+        for (IntermediateResultPartitionID sourceId :
+                getConsumedPartitions(inputNumber).getItems()) {
+            if (getExecutionGraph().getResultPartition(sourceId).isConsumable()) {
                 return true;
             }
         }
