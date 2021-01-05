@@ -21,7 +21,10 @@ package org.apache.flink.runtime.scheduler.strategy;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.runtime.topology.Vertex;
+
+import java.util.List;
 
 /** Scheduling representation of {@link ExecutionVertex}. */
 public interface SchedulingExecutionVertex
@@ -37,4 +40,14 @@ public interface SchedulingExecutionVertex
      * @return state of the execution vertex
      */
     ExecutionState getState();
+
+    /**
+     * Get the grouped consumed result partitions.
+     *
+     * @return list of grouped intermediate result partition IDs
+     */
+    List<Group<IntermediateResultPartitionID>> getGroupedConsumedResults();
+
+    /** Get {@link SchedulingResultPartition} by {@link IntermediateResultPartitionID}. */
+    SchedulingResultPartition getResultPartition(IntermediateResultPartitionID id);
 }
