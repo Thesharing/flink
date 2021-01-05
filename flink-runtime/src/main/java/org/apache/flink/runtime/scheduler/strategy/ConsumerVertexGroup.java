@@ -13,39 +13,27 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License.
+ * limitations under the License
  */
 
-package org.apache.flink.runtime.executiongraph;
+package org.apache.flink.runtime.scheduler.strategy;
 
-public class ExecutionEdge {
+import java.util.Collections;
+import java.util.List;
 
-    private final IntermediateResultPartition source;
+/** Group that contains {@link ExecutionVertexID}. */
+public class ConsumerVertexGroup {
+    private final List<ExecutionVertexID> vertices;
 
-    private final ExecutionVertex target;
-
-    private final int inputNum;
-
-    public ExecutionEdge(IntermediateResultPartition source, ExecutionVertex target, int inputNum) {
-        this.source = source;
-        this.target = target;
-        this.inputNum = inputNum;
+    public ConsumerVertexGroup(List<ExecutionVertexID> vertices) {
+        this.vertices = vertices;
     }
 
-    public IntermediateResultPartition getSource() {
-        return source;
+    public ConsumerVertexGroup(ExecutionVertexID vertex) {
+        this(Collections.singletonList(vertex));
     }
 
-    public ExecutionVertex getTarget() {
-        return target;
-    }
-
-    public int getInputNum() {
-        return inputNum;
-    }
-
-    @Override
-    public String toString() {
-        return "ExecutionEdge [" + source + " <=> " + target + "]";
+    public List<ExecutionVertexID> getVertices() {
+        return vertices;
     }
 }
