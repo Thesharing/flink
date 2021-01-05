@@ -25,6 +25,7 @@ import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -188,11 +189,12 @@ public class TestingSchedulingTopology implements SchedulingTopology {
                         .withResultPartitionType(resultPartitionType)
                         .build();
 
-        resultPartition.addConsumer(consumer);
+        resultPartition.addConsumer(new Group<>(consumer));
         resultPartition.setProducer(producer);
 
         producer.addProducedPartition(resultPartition);
-        consumer.addConsumedPartition(resultPartition);
+        consumer.addConsumedPartition(
+                new Group<>(resultPartition.getId()), Collections.singletonList(resultPartition));
 
         updateVertexResultPartitions(producer);
         updateVertexResultPartitions(consumer);
@@ -296,8 +298,10 @@ public class TestingSchedulingTopology implements SchedulingTopology {
                                 .build();
                 resultPartition.setProducer(producer);
                 producer.addProducedPartition(resultPartition);
-                consumer.addConsumedPartition(resultPartition);
-                resultPartition.addConsumer(consumer);
+                consumer.addConsumedPartition(
+                        new Group<>(resultPartition.getId()),
+                        Collections.singletonList(resultPartition));
+                resultPartition.addConsumer(new Group<>(consumer));
                 resultPartitions.add(resultPartition);
             }
 
@@ -323,21 +327,30 @@ public class TestingSchedulingTopology implements SchedulingTopology {
             final List<TestingSchedulingResultPartition> resultPartitions = new ArrayList<>();
             final IntermediateDataSetID intermediateDataSetId = new IntermediateDataSetID();
 
+            Group<TestingSchedulingExecutionVertex> consumerGroup = new Group<>(consumers);
+
+            TestingSchedulingResultPartition.Builder resultPartitionBuilder =
+                    initTestingSchedulingResultPartitionBuilder()
+                            .withIntermediateDataSetID(intermediateDataSetId)
+                            .withResultPartitionState(resultPartitionState);
             for (TestingSchedulingExecutionVertex producer : producers) {
 
                 final TestingSchedulingResultPartition resultPartition =
-                        initTestingSchedulingResultPartitionBuilder()
-                                .withIntermediateDataSetID(intermediateDataSetId)
-                                .withResultPartitionState(resultPartitionState)
-                                .build();
+                        resultPartitionBuilder.build();
                 resultPartition.setProducer(producer);
                 producer.addProducedPartition(resultPartition);
 
-                for (TestingSchedulingExecutionVertex consumer : consumers) {
-                    consumer.addConsumedPartition(resultPartition);
-                    resultPartition.addConsumer(consumer);
-                }
+                resultPartition.addConsumer(consumerGroup);
                 resultPartitions.add(resultPartition);
+            }
+
+            Group<IntermediateResultPartitionID> consumedResultIdGroup =
+                    new Group<>(
+                            resultPartitions.stream()
+                                    .map(TestingSchedulingResultPartition::getId)
+                                    .collect(Collectors.toList()));
+            for (TestingSchedulingExecutionVertex consumer : consumers) {
+                consumer.addConsumedPartition(consumedResultIdGroup, resultPartitions);
             }
 
             return resultPartitions;
