@@ -22,6 +22,7 @@ import org.apache.flink.api.common.InputDependencyConstraint;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSet;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.topology.Group;
 
 import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
 
@@ -41,7 +42,7 @@ public class InputDependencyConstraintChecker {
             new SchedulingIntermediateDataSetManager();
 
     public boolean check(final SchedulingExecutionVertex schedulingExecutionVertex) {
-        if (Iterables.isEmpty(schedulingExecutionVertex.getConsumedResults())) {
+        if (Iterables.isEmpty(schedulingExecutionVertex.getGroupedConsumedResults())) {
             return true;
         }
 
@@ -72,20 +73,28 @@ public class InputDependencyConstraintChecker {
     }
 
     private boolean checkAll(final SchedulingExecutionVertex schedulingExecutionVertex) {
-        for (SchedulingResultPartition consumedResultPartition :
-                schedulingExecutionVertex.getConsumedResults()) {
-            if (!partitionConsumable(consumedResultPartition)) {
-                return false;
+        for (Group<IntermediateResultPartitionID> consumedPartitionIdGroup :
+                schedulingExecutionVertex.getGroupedConsumedResults()) {
+            for (IntermediateResultPartitionID consumedPartitionId :
+                    consumedPartitionIdGroup.getItems()) {
+                if (!partitionConsumable(
+                        schedulingExecutionVertex.getResultPartition(consumedPartitionId))) {
+                    return false;
+                }
             }
         }
         return true;
     }
 
     private boolean checkAny(final SchedulingExecutionVertex schedulingExecutionVertex) {
-        for (SchedulingResultPartition consumedResultPartition :
-                schedulingExecutionVertex.getConsumedResults()) {
-            if (partitionConsumable(consumedResultPartition)) {
-                return true;
+        for (Group<IntermediateResultPartitionID> consumedPartitionIdGroup :
+                schedulingExecutionVertex.getGroupedConsumedResults()) {
+            for (IntermediateResultPartitionID consumedPartitionId :
+                    consumedPartitionIdGroup.getItems()) {
+                if (partitionConsumable(
+                        schedulingExecutionVertex.getResultPartition(consumedPartitionId))) {
+                    return true;
+                }
             }
         }
         return false;
