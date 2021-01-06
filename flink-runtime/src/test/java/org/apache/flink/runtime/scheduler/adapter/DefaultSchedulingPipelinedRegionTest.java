@@ -128,11 +128,12 @@ public class DefaultSchedulingPipelinedRegionTest extends TestLogger {
                 Iterables.getOnlyElement(vertexB0.getConsumedResults()).getId();
 
         final Set<IntermediateResultPartitionID> secondPipelinedRegionConsumedResults =
-                IterableUtils.toStream(secondPipelinedRegion.getConsumedResults())
-                        .map(DefaultResultPartition::getId)
+                IterableUtils.toStream(secondPipelinedRegion.getGroupedConsumedResults())
+                        .flatMap(group -> group.getItems().stream())
                         .collect(Collectors.toSet());
 
-        assertThat(firstPipelinedRegion.getConsumedResults().iterator().hasNext(), is(false));
+        assertThat(
+                firstPipelinedRegion.getGroupedConsumedResults().iterator().hasNext(), is(false));
         assertThat(secondPipelinedRegionConsumedResults, contains(b0ConsumedResultPartition));
     }
 }
