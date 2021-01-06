@@ -99,14 +99,13 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
         return resultPartitionsById.get(id);
     }
 
-    void addConsumedPartition(Group<TestingSchedulingResultPartition> consumedPartitionGroup) {
-        Group<IntermediateResultPartitionID> idGroup =
-                new Group<>(new ArrayList<>(consumedPartitionGroup.getItems().size()));
-        for (TestingSchedulingResultPartition partition : consumedPartitionGroup.getItems()) {
-            idGroup.getItems().add(partition.getId());
+    void addConsumedPartition(
+            Group<IntermediateResultPartitionID> consumedResultIdGroup,
+            List<TestingSchedulingResultPartition> consumedResults) {
+        this.consumerPartitions.add(consumedResultIdGroup);
+        for (TestingSchedulingResultPartition partition : consumedResults) {
             this.resultPartitionsById.putIfAbsent(partition.getId(), partition);
         }
-        this.consumerPartitions.add(idGroup);
     }
 
     void addProducedPartition(TestingSchedulingResultPartition partition) {

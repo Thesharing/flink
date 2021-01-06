@@ -193,7 +193,9 @@ public class TestingSchedulingTopology implements SchedulingTopology {
         resultPartition.setProducer(producer);
 
         producer.addProducedPartition(resultPartition);
-        consumer.addConsumedPartition(new Group<>(Collections.singletonList(resultPartition)));
+        consumer.addConsumedPartition(
+                new Group<>(Collections.singletonList(resultPartition.getId())),
+                Collections.singletonList(resultPartition));
 
         updateVertexResultPartitions(producer);
         updateVertexResultPartitions(consumer);
@@ -298,7 +300,8 @@ public class TestingSchedulingTopology implements SchedulingTopology {
                 resultPartition.setProducer(producer);
                 producer.addProducedPartition(resultPartition);
                 consumer.addConsumedPartition(
-                        new Group<>(Collections.singletonList(resultPartition)));
+                        new Group<>(Collections.singletonList(resultPartition.getId())),
+                        Collections.singletonList(resultPartition));
                 resultPartition.addConsumer(new Group<>(Collections.singletonList(consumer)));
                 resultPartitions.add(resultPartition);
             }
@@ -342,10 +345,13 @@ public class TestingSchedulingTopology implements SchedulingTopology {
                 resultPartitions.add(resultPartition);
             }
 
-            Group<TestingSchedulingResultPartition> consumerPartitionGroup =
-                    new Group<>(resultPartitions);
+            Group<IntermediateResultPartitionID> consumedResultIdGroup =
+                    new Group<>(
+                            resultPartitions.stream()
+                                    .map(TestingSchedulingResultPartition::getId)
+                                    .collect(Collectors.toList()));
             for (TestingSchedulingExecutionVertex consumer : consumers) {
-                consumer.addConsumedPartition(consumerPartitionGroup);
+                consumer.addConsumedPartition(consumedResultIdGroup, resultPartitions);
             }
 
             return resultPartitions;
