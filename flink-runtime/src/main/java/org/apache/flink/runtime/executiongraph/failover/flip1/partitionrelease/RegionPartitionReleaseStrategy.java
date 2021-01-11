@@ -56,8 +56,8 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
     private final Map<SchedulingPipelinedRegion, List<Set<SchedulingPipelinedRegion>>>
             consumerRegionSetMapping = new HashMap<>();
 
-    private final Map<Set<SchedulingPipelinedRegion>, Integer> consumerRegionSetUnfinishedCount =
-            new HashMap<>();
+    private final Map<Set<SchedulingPipelinedRegion>, Set<SchedulingPipelinedRegion>>
+            consumerRegionFinishedSet = new HashMap<>();
 
     public RegionPartitionReleaseStrategy(final SchedulingTopology schedulingTopology) {
         this.schedulingTopology = checkNotNull(schedulingTopology);
@@ -87,8 +87,8 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
                         .computeIfAbsent(schedulingRegion, region -> new ArrayList<>())
                         .add(schedulingPipelinedRegionSet);
             }
-            consumerRegionSetUnfinishedCount.computeIfAbsent(
-                    schedulingPipelinedRegionSet, Set::size);
+            consumerRegionFinishedSet.computeIfAbsent(
+                    schedulingPipelinedRegionSet, set -> new HashSet<>());
         }
     }
 
@@ -117,8 +117,9 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
             for (Set<SchedulingPipelinedRegion> regionSet :
                     consumerRegionSetMapping.getOrDefault(
                             pipelinedRegion, Collections.emptyList())) {
-                consumerRegionSetUnfinishedCount.computeIfPresent(
-                        regionSet, (region, count) -> Math.max(count - 1, 0));
+                consumerRegionFinishedSet
+                        .computeIfAbsent(regionSet, set -> new HashSet<>())
+                        .add(pipelinedRegion);
             }
 
             return filterReleasablePartitions(pipelinedRegion.getGroupedConsumedResults());
@@ -130,7 +131,17 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
     public void vertexUnfinished(final ExecutionVertexID executionVertexId) {
         final PipelinedRegionExecutionView regionExecutionView =
                 getPipelinedRegionExecutionViewForVertex(executionVertexId);
+
         regionExecutionView.vertexUnfinished(executionVertexId);
+        final SchedulingPipelinedRegion pipelinedRegion =
+                schedulingTopology.getPipelinedRegionOfVertex(executionVertexId);
+
+        for (Set<SchedulingPipelinedRegion> regionSet :
+                consumerRegionSetMapping.getOrDefault(pipelinedRegion, Collections.emptyList())) {
+            consumerRegionFinishedSet
+                    .computeIfAbsent(regionSet, set -> new HashSet<>())
+                    .remove(pipelinedRegion);
+        }
     }
 
     private PipelinedRegionExecutionView getPipelinedRegionExecutionViewForVertex(
@@ -146,10 +157,14 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
 
     private List<IntermediateResultPartitionID> filterReleasablePartitions(
             final List<Group<IntermediateResultPartitionID>> schedulingResultPartitions) {
-        List<IntermediateResultPartitionID> filteredPartitions = new ArrayList<>();
+        final List<IntermediateResultPartitionID> filteredPartitions = new ArrayList<>();
         for (Group<IntermediateResultPartitionID> group : schedulingResultPartitions) {
-            if (consumerRegionSetUnfinishedCount.get(partitionGroupConsumerRegions.get(group))
-                    <= 0) {
+            final Set<SchedulingPipelinedRegion> consumerRegionSet =
+                    partitionGroupConsumerRegions.get(group);
+            if (consumerRegionFinishedSet
+                            .getOrDefault(consumerRegionSet, Collections.emptySet())
+                            .size()
+                    == consumerRegionSet.size()) {
                 filteredPartitions.addAll(group.getItems());
             }
         }
