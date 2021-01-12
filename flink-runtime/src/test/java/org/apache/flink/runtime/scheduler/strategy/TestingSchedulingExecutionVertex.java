@@ -154,15 +154,6 @@ public class TestingSchedulingExecutionVertex implements SchedulingExecutionVert
         }
 
         public Builder withConsumedPartitions(
-                List<Group<IntermediateResultPartitionID>> partitions,
-                Map<IntermediateResultPartitionID, TestingSchedulingResultPartition>
-                        resultPartitionsById) {
-            this.partitions = partitions;
-            this.resultPartitionsById = resultPartitionsById;
-            return this;
-        }
-
-        public Builder withConsumedPartitions(
                 List<Group<TestingSchedulingResultPartition>> partitions) {
             this.partitions = new ArrayList<>();
             this.resultPartitionsById = new HashMap<>();
