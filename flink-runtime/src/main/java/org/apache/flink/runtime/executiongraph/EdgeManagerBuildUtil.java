@@ -25,6 +25,7 @@ import org.apache.flink.runtime.topology.Group;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /** Utilities for building {@link EdgeManager}. */
@@ -81,93 +82,101 @@ public class EdgeManagerBuildUtil {
             int inputNumber,
             DistributionPattern distributionPattern) {
 
-        final int parallelism = taskVertices[0].getParallelism();
+        final int sourceCount = ires.getPartitions().length;
+        final int targetCount = taskVertices.length;
 
-        ArrayList<Group<IntermediateResultPartitionID>> partitions = new ArrayList<>(parallelism);
-        for (int i = 0; i < parallelism; i++) {
-            partitions.add(new Group<>(distributionPattern));
-        }
-        for (int i = 0; i < ires.getPartitions().length; i++) {
-            IntermediateResultPartition partition = ires.getPartitions()[i];
-            Group<ExecutionVertexID> consumerExecutionVertices =
-                    getConsumerExecutionVerticesPointwise(
-                            taskVertices, ires, i, distributionPattern);
-            for (ExecutionVertexID vertexID : consumerExecutionVertices.getItems()) {
-                partitions
-                        .get(vertexID.getSubtaskIndex())
-                        .getItems()
-                        .add(partition.getPartitionId());
-            }
-
-            partition.setConsumers(consumerExecutionVertices);
-        }
-        for (int i = 0; i < parallelism; i++) {
-            ExecutionVertex ev = taskVertices[i];
-            ev.setConsumedPartitions(partitions.get(i), inputNumber);
-        }
-    }
-
-    private static Group<ExecutionVertexID> getConsumerExecutionVerticesPointwise(
-            ExecutionVertex[] taskVertices,
-            IntermediateResult ires,
-            int partitionNumber,
-            DistributionPattern distributionPattern) {
-
-        final int sourceCount = ires.getProducer().getParallelism();
-        final int targetCount = taskVertices[0].getParallelism();
-
-        final Group<ExecutionVertexID> consumerVertices = new Group<>(distributionPattern);
-
-        // simple case same number of sources as targets
         if (sourceCount == targetCount) {
-            consumerVertices.getItems().add(taskVertices[partitionNumber].getID());
-        } else if (sourceCount > targetCount) {
-            int vertexSubtaskIndex;
+            for (int i = 0; i < sourceCount; i++) {
+                ExecutionVertex executionVertex = taskVertices[i];
+                IntermediateResultPartition partition = ires.getPartitions()[i];
 
-            // check if the pattern is regular or irregular
-            // we use int arithmetics for regular, and floating point with rounding for irregular
-            if (sourceCount % targetCount == 0) {
-                // same number of targets per source
-                int factor = sourceCount / targetCount;
-                vertexSubtaskIndex = partitionNumber / factor;
-            } else {
-                // different number of targets per source
-                float factor = ((float) sourceCount) / targetCount;
+                Group<ExecutionVertexID> consumerGroup =
+                        new Group<>(executionVertex.getID(), distributionPattern);
+                partition.setConsumers(consumerGroup);
 
-                // Do mirror to generate the same edge mapping as in old Flink version
-                int mirrorPartitionNumber = sourceCount - 1 - partitionNumber;
-                int mirrorVertexSubTaskIndex = (int) (mirrorPartitionNumber / factor);
-                vertexSubtaskIndex = targetCount - 1 - mirrorVertexSubTaskIndex;
+                Group<IntermediateResultPartitionID> consumedPartitionGroup =
+                        new Group<>(partition.getPartitionId(), distributionPattern);
+                executionVertex.setConsumedPartitions(consumedPartitionGroup, inputNumber);
             }
-            consumerVertices.getItems().add(taskVertices[vertexSubtaskIndex].getID());
+        } else if (sourceCount > targetCount) {
+            for (int index = 0; index < targetCount; index++) {
+
+                ExecutionVertex executionVertex = taskVertices[index];
+                Group<ExecutionVertexID> consumerGroup =
+                        new Group<>(executionVertex.getID(), distributionPattern);
+
+                List<IntermediateResultPartitionID> consumedPartitions =
+                        new ArrayList<>(sourceCount / targetCount + 1);
+
+                if (sourceCount % targetCount == 0) {
+                    int factor = sourceCount / targetCount;
+                    int start = index * factor;
+                    for (int i = 0; i < factor; i++) {
+                        IntermediateResultPartition partition = ires.getPartitions()[start + i];
+                        partition.setConsumers(consumerGroup);
+
+                        consumedPartitions.add(partition.getPartitionId());
+                    }
+                } else {
+                    float factor = ((float) sourceCount) / targetCount;
+                    int start = (int) (index * factor);
+                    int end =
+                            (index == targetCount - 1) ? sourceCount : (int) ((index + 1) * factor);
+
+                    for (int i = 0; i < end - start; i++) {
+                        IntermediateResultPartition partition = ires.getPartitions()[start + i];
+                        partition.setConsumers(consumerGroup);
+
+                        consumedPartitions.add(partition.getPartitionId());
+                    }
+                }
+
+                Group<IntermediateResultPartitionID> consumedPartitionGroup =
+                        new Group<>(consumedPartitions, distributionPattern);
+                executionVertex.setConsumedPartitions(consumedPartitionGroup, inputNumber);
+            }
         } else {
-            if (targetCount % sourceCount == 0) {
-                // same number of targets per source
-                int factor = targetCount / sourceCount;
-                int startIndex = partitionNumber * factor;
+            for (int partitionNum = 0; partitionNum < sourceCount; partitionNum++) {
 
-                for (int i = 0; i < factor; i++) {
-                    consumerVertices.getItems().add(taskVertices[startIndex + i].getID());
+                IntermediateResultPartition partition = ires.getPartitions()[partitionNum];
+                Group<IntermediateResultPartitionID> consumerPartitionGroup =
+                        new Group<>(partition.getPartitionId(), distributionPattern);
+
+                List<ExecutionVertexID> consumers = new ArrayList<>(targetCount / sourceCount + 1);
+
+                if (targetCount % sourceCount == 0) {
+                    int factor = targetCount / sourceCount;
+                    int start = partitionNum * factor;
+                    for (int i = 0; i < factor; i++) {
+                        ExecutionVertex executionVertex = taskVertices[start + i];
+                        executionVertex.setConsumedPartitions(consumerPartitionGroup, inputNumber);
+
+                        consumers.add(executionVertex.getID());
+                    }
+                } else {
+                    float factor = ((float) targetCount) / sourceCount;
+                    int mirrorPartitionNumber = sourceCount - 1 - partitionNum;
+                    int start = (int) (mirrorPartitionNumber * factor);
+                    int end =
+                            (mirrorPartitionNumber == sourceCount - 1)
+                                    ? targetCount
+                                    : (int) ((mirrorPartitionNumber + 1) * factor);
+
+                    for (int i = 0; i < end - start; i++) {
+                        int mirrorVertexSubTaskIndex = start + i;
+                        int vertexSubtaskIndex = targetCount - 1 - mirrorVertexSubTaskIndex;
+
+                        ExecutionVertex executionVertex = taskVertices[vertexSubtaskIndex];
+                        executionVertex.setConsumedPartitions(consumerPartitionGroup, inputNumber);
+
+                        consumers.add(executionVertex.getID());
+                    }
                 }
-            } else {
-                float factor = ((float) targetCount) / sourceCount;
 
-                // Do mirror to generate the same edge mapping as in old Flink version
-                int mirrorPartitionNumber = sourceCount - 1 - partitionNumber;
-                int start = (int) (mirrorPartitionNumber * factor);
-                int end =
-                        (mirrorPartitionNumber == sourceCount - 1)
-                                ? targetCount
-                                : (int) ((mirrorPartitionNumber + 1) * factor);
-
-                for (int i = 0; i < end - start; i++) {
-                    int mirrorVertexSubTaskIndex = start + i;
-                    int vertexSubtaskIndex = targetCount - 1 - mirrorVertexSubTaskIndex;
-                    consumerVertices.getItems().add(taskVertices[vertexSubtaskIndex].getID());
-                }
+                Group<ExecutionVertexID> consumerGroup =
+                        new Group<>(consumers, distributionPattern);
+                partition.setConsumers(consumerGroup);
             }
         }
-
-        return consumerVertices;
     }
 }
