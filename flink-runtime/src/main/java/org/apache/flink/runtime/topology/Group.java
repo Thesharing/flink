@@ -22,6 +22,7 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** Group that contains vertices and results. */
@@ -34,6 +35,11 @@ public class Group<E> {
         this(items, null);
     }
 
+    @VisibleForTesting
+    public Group(E item) {
+        this(Collections.singletonList(item));
+    }
+
     public Group(DistributionPattern distributionPattern) {
         this(new ArrayList<>(), distributionPattern);
     }
@@ -41,6 +47,10 @@ public class Group<E> {
     public Group(List<E> items, DistributionPattern distributionPattern) {
         this.items = items;
         this.distributionPattern = distributionPattern;
+    }
+
+    public Group(E item, DistributionPattern distributionPattern) {
+        this(Collections.singletonList(item), distributionPattern);
     }
 
     public List<E> getItems() {
