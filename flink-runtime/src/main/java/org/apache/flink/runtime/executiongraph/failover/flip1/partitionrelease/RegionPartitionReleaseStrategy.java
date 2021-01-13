@@ -23,7 +23,6 @@ import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingPipelinedRegion;
-import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
 import org.apache.flink.runtime.topology.Group;
 
@@ -35,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.flink.runtime.scheduler.strategy.SchedulingStrategyUtils.initPartitionGroupConsumerRegions;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
@@ -52,12 +52,21 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
     private final Map<Group<IntermediateResultPartitionID>, Set<SchedulingPipelinedRegion>>
             partitionGroupConsumerRegions = new HashMap<>();
 
-    /** Only contains consumer regions with consumed results */
+    /** PartitionID -> PartitionID group. */
+    private final Map<IntermediateResultPartitionID, List<Group<IntermediateResultPartitionID>>>
+            partitionGroupsById = new HashMap<>();
+
+    /** Region -> Region set. Only contains regions with consumed results. */
     private final Map<SchedulingPipelinedRegion, List<Set<SchedulingPipelinedRegion>>>
             consumerRegionSetMapping = new HashMap<>();
 
+    /** The progress of Region set. Only contains regions with consumed results. */
     private final Map<Set<SchedulingPipelinedRegion>, Set<SchedulingPipelinedRegion>>
-            consumerRegionFinishedSet = new HashMap<>();
+            consumerRegionFinishProgress = new HashMap<>();
+
+    /** The progress of PartitionID group. */
+    private final Map<Group<IntermediateResultPartitionID>, Boolean> partitionGroupFinishProgress =
+            new HashMap<>();
 
     public RegionPartitionReleaseStrategy(final SchedulingTopology schedulingTopology) {
         this.schedulingTopology = checkNotNull(schedulingTopology);
@@ -67,16 +76,14 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
     private void init() {
         initRegionExecutionViewByVertex();
 
-        for (SchedulingPipelinedRegion region : schedulingTopology.getAllPipelinedRegions()) {
-            for (Group<IntermediateResultPartitionID> partitionIdGroup :
-                    region.getGroupedConsumedResults()) {
-                SchedulingResultPartition partition =
-                        region.getResultPartition(partitionIdGroup.getItems().get(0));
-                checkState(partition.getResultType().isBlocking());
+        initPartitionGroupConsumerRegions(
+                schedulingTopology.getAllPipelinedRegions(), partitionGroupConsumerRegions);
 
-                partitionGroupConsumerRegions
-                        .computeIfAbsent(partitionIdGroup, group -> new HashSet<>())
-                        .add(region);
+        for (Group<IntermediateResultPartitionID> group : partitionGroupConsumerRegions.keySet()) {
+            for (IntermediateResultPartitionID partitionId : group.getItems()) {
+                partitionGroupsById
+                        .computeIfAbsent(partitionId, id -> new ArrayList<>())
+                        .add(group);
             }
         }
 
@@ -87,8 +94,13 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
                         .computeIfAbsent(schedulingRegion, region -> new ArrayList<>())
                         .add(schedulingPipelinedRegionSet);
             }
-            consumerRegionFinishedSet.computeIfAbsent(
+            consumerRegionFinishProgress.computeIfAbsent(
                     schedulingPipelinedRegionSet, set -> new HashSet<>());
+        }
+
+        for (Group<IntermediateResultPartitionID> partitionIdGroup :
+                partitionGroupConsumerRegions.keySet()) {
+            partitionGroupFinishProgress.putIfAbsent(partitionIdGroup, Boolean.FALSE);
         }
     }
 
@@ -117,7 +129,7 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
             for (Set<SchedulingPipelinedRegion> regionSet :
                     consumerRegionSetMapping.getOrDefault(
                             pipelinedRegion, Collections.emptyList())) {
-                consumerRegionFinishedSet
+                consumerRegionFinishProgress
                         .computeIfAbsent(regionSet, set -> new HashSet<>())
                         .add(pipelinedRegion);
             }
@@ -138,7 +150,7 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
 
         for (Set<SchedulingPipelinedRegion> regionSet :
                 consumerRegionSetMapping.getOrDefault(pipelinedRegion, Collections.emptyList())) {
-            consumerRegionFinishedSet
+            consumerRegionFinishProgress
                     .computeIfAbsent(regionSet, set -> new HashSet<>())
                     .remove(pipelinedRegion);
         }
@@ -159,13 +171,20 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
             final List<Group<IntermediateResultPartitionID>> schedulingResultPartitions) {
         final List<IntermediateResultPartitionID> filteredPartitions = new ArrayList<>();
         for (Group<IntermediateResultPartitionID> group : schedulingResultPartitions) {
+            partitionGroupFinishProgress.replace(group, Boolean.TRUE);
             final Set<SchedulingPipelinedRegion> consumerRegionSet =
                     partitionGroupConsumerRegions.get(group);
-            if (consumerRegionFinishedSet
+            if (consumerRegionFinishProgress
                             .getOrDefault(consumerRegionSet, Collections.emptySet())
                             .size()
                     == consumerRegionSet.size()) {
-                filteredPartitions.addAll(group.getItems());
+                for (IntermediateResultPartitionID partitionId : group.getItems()) {
+                    if (partitionGroupsById.get(partitionId).stream()
+                            .map(partitionGroupFinishProgress::get)
+                            .allMatch(progress -> progress == Boolean.TRUE)) {
+                        filteredPartitions.add(partitionId);
+                    }
+                }
             }
         }
         return filteredPartitions;
