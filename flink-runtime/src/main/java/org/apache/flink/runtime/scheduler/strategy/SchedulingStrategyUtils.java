@@ -18,20 +18,26 @@
 
 package org.apache.flink.runtime.scheduler.strategy;
 
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.DeploymentOption;
 import org.apache.flink.runtime.scheduler.ExecutionVertexDeploymentOption;
+import org.apache.flink.runtime.topology.Group;
 import org.apache.flink.util.IterableUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.util.Preconditions.checkState;
+
 /** Utils for {@link SchedulingStrategy}. */
-class SchedulingStrategyUtils {
+public class SchedulingStrategyUtils {
 
     static Set<ExecutionVertexID> getAllVertexIdsFromTopology(final SchedulingTopology topology) {
         return IterableUtils.toStream(topology.getVertices())
@@ -94,5 +100,26 @@ class SchedulingStrategyUtils {
                 .filter(regions::contains)
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    public static void initPartitionGroupConsumerRegions(
+            Iterable<? extends SchedulingPipelinedRegion> pipelinedRegions,
+            Map<Group<IntermediateResultPartitionID>, Set<SchedulingPipelinedRegion>>
+                    partitionGroupConsumerRegions) {
+
+        checkState(partitionGroupConsumerRegions.isEmpty());
+
+        for (SchedulingPipelinedRegion region : pipelinedRegions) {
+            for (Group<IntermediateResultPartitionID> partitionIdGroup :
+                    region.getGroupedConsumedResults()) {
+                SchedulingResultPartition partition =
+                        region.getResultPartition(partitionIdGroup.getItems().get(0));
+                checkState(partition.getResultType().isBlocking());
+
+                partitionGroupConsumerRegions
+                        .computeIfAbsent(partitionIdGroup, group -> new HashSet<>())
+                        .add(region);
+            }
+        }
     }
 }
