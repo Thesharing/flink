@@ -171,13 +171,11 @@ public class RegionPartitionReleaseStrategy implements PartitionReleaseStrategy 
             final List<Group<IntermediateResultPartitionID>> schedulingResultPartitions) {
         final List<IntermediateResultPartitionID> filteredPartitions = new ArrayList<>();
         for (Group<IntermediateResultPartitionID> group : schedulingResultPartitions) {
-            partitionGroupFinishProgress.replace(group, Boolean.TRUE);
             final Set<SchedulingPipelinedRegion> consumerRegionSet =
                     partitionGroupConsumerRegions.get(group);
-            if (consumerRegionFinishProgress
-                            .getOrDefault(consumerRegionSet, Collections.emptySet())
-                            .size()
+            if (consumerRegionFinishProgress.get(consumerRegionSet).size()
                     == consumerRegionSet.size()) {
+                partitionGroupFinishProgress.replace(group, Boolean.TRUE);
                 for (IntermediateResultPartitionID partitionId : group.getItems()) {
                     if (partitionGroupsById.get(partitionId).stream()
                             .map(partitionGroupFinishProgress::get)
