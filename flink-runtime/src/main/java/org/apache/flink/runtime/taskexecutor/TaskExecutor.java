@@ -503,7 +503,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     @Override
     public CompletableFuture<Acknowledge> submitTask(
             TaskDeploymentDescriptor tdd, JobMasterId jobMasterId, Time timeout) {
-
+        log.info(
+                "Start to submit task #{} ({})",
+                tdd.getSubtaskIndex() + 1,
+                tdd.getExecutionAttemptId());
         try {
             final JobID jobId = tdd.getJobId();
             final ExecutionAttemptID executionAttemptID = tdd.getExecutionAttemptId();
@@ -636,6 +639,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 throw new TaskSubmissionException("Could not submit task.", e);
             }
 
+            log.info(
+                    "Start to init Task #{} ({}) instance.",
+                    tdd.getSubtaskIndex() + 1,
+                    tdd.getExecutionAttemptId());
+
             Task task =
                     new Task(
                             jobInformation,
@@ -667,6 +675,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             resultPartitionConsumableNotifier,
                             partitionStateChecker,
                             getRpcService().getExecutor());
+
+            log.info(
+                    "Finish initializing task #{} ({}) instance.",
+                    tdd.getSubtaskIndex() + 1,
+                    tdd.getExecutionAttemptId());
 
             taskMetricGroup.gauge(MetricNames.IS_BACK_PRESSURED, task::isBackPressured);
 

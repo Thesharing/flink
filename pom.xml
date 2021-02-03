@@ -1560,7 +1560,7 @@ under the License.
 						<execution.checkpointing.unaligned>true</execution.checkpointing.unaligned>
 						<project.basedir>${project.basedir}</project.basedir>
 					</systemPropertyVariables>
-					<argLine>-Xms256m -Xmx2048m -Dmvn.forkNumber=${surefire.forkNumber} -XX:+UseG1GC</argLine>
+					<argLine>-Xms6144m -Xmx6144m -Dmvn.forkNumber=${surefire.forkNumber} -XX:+UseG1GC</argLine>
 				</configuration>
 				<executions>
 					<!--execute all the unit tests-->
