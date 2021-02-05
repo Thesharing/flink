@@ -33,10 +33,8 @@ import org.apache.flink.runtime.rpc.messages.LocalRpcInvocation;
 import org.apache.flink.runtime.rpc.messages.RemoteHandshakeMessage;
 import org.apache.flink.runtime.rpc.messages.RpcInvocation;
 import org.apache.flink.runtime.rpc.messages.RunAsync;
-import org.apache.flink.types.Either;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.Preconditions;
-import org.apache.flink.util.SerializedValue;
 
 import akka.actor.AbstractActor;
 import akka.actor.ActorRef;
@@ -60,7 +58,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import scala.concurrent.duration.FiniteDuration;
 import scala.concurrent.impl.Promise;
 
-import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -94,8 +91,6 @@ class AkkaRpcActor<T extends RpcEndpoint & RpcGateway> extends AbstractActor {
 
     private final int version;
 
-    private final long maximumFramesize;
-
     private final AtomicBoolean rpcEndpointStopped;
 
     private volatile RpcEndpointTerminationResult rpcEndpointTerminationResult;
@@ -105,15 +100,11 @@ class AkkaRpcActor<T extends RpcEndpoint & RpcGateway> extends AbstractActor {
     AkkaRpcActor(
             final T rpcEndpoint,
             final CompletableFuture<Boolean> terminationFuture,
-            final int version,
-            final long maximumFramesize) {
-
-        checkArgument(maximumFramesize > 0, "Maximum framesize must be positive.");
+            final int version) {
         this.rpcEndpoint = checkNotNull(rpcEndpoint, "rpc endpoint");
         this.mainThreadValidator = new MainThreadValidatorUtil(rpcEndpoint);
         this.terminationFuture = checkNotNull(terminationFuture);
         this.version = version;
-        this.maximumFramesize = maximumFramesize;
         this.rpcEndpointStopped = new AtomicBoolean(false);
         this.rpcEndpointTerminationResult =
                 RpcEndpointTerminationResult.failure(
@@ -301,6 +292,7 @@ class AkkaRpcActor<T extends RpcEndpoint & RpcGateway> extends AbstractActor {
                     // No return value to send back
                     rpcMethod.invoke(rpcEndpoint, rpcInvocation.getArgs());
                 } else {
+                    // It seems here are two serialization
                     final Object result;
                     try {
                         result = rpcMethod.invoke(rpcEndpoint, rpcInvocation.getArgs());
@@ -313,13 +305,11 @@ class AkkaRpcActor<T extends RpcEndpoint & RpcGateway> extends AbstractActor {
                         return;
                     }
 
-                    final String methodName = rpcMethod.getName();
-
                     if (result instanceof CompletableFuture) {
                         final CompletableFuture<?> responseFuture = (CompletableFuture<?>) result;
-                        sendAsyncResponse(responseFuture, methodName);
+                        sendAsyncResponse(responseFuture);
                     } else {
-                        sendSyncResponse(result, methodName);
+                        sendSyncResponse(result);
                     }
                 }
             } catch (Throwable e) {
@@ -330,84 +320,24 @@ class AkkaRpcActor<T extends RpcEndpoint & RpcGateway> extends AbstractActor {
         }
     }
 
-    private void sendSyncResponse(Object response, String methodName) {
-        if (isRemoteSender(getSender())) {
-            Either<SerializedValue<?>, AkkaRpcException> serializedResult =
-                    serializeRemoteResultAndVerifySize(response, methodName);
-
-            if (serializedResult.isLeft()) {
-                getSender().tell(new Status.Success(serializedResult.left()), getSelf());
-            } else {
-                getSender().tell(new Status.Failure(serializedResult.right()), getSelf());
-            }
-        } else {
-            getSender().tell(new Status.Success(response), getSelf());
-        }
+    private void sendSyncResponse(Object response) {
+        getSender().tell(new Status.Success(response), getSelf());
     }
 
-    private void sendAsyncResponse(CompletableFuture<?> asyncResponse, String methodName) {
+    private void sendAsyncResponse(CompletableFuture<?> asyncResponse) {
         final ActorRef sender = getSender();
         Promise.DefaultPromise<Object> promise = new Promise.DefaultPromise<>();
 
-        FutureUtils.assertNoException(
-                asyncResponse.handle(
-                        (value, throwable) -> {
-                            if (throwable != null) {
-                                promise.failure(throwable);
-                            } else {
-                                if (isRemoteSender(sender)) {
-                                    Either<SerializedValue<?>, AkkaRpcException> serializedResult =
-                                            serializeRemoteResultAndVerifySize(value, methodName);
-
-                                    if (serializedResult.isLeft()) {
-                                        promise.success(serializedResult.left());
-                                    } else {
-                                        promise.failure(serializedResult.right());
-                                    }
-                                } else {
-                                    promise.success(new Status.Success(value));
-                                }
-                            }
-
-                            // consume the provided throwable
-                            return null;
-                        }));
+        asyncResponse.whenComplete(
+                (value, throwable) -> {
+                    if (throwable != null) {
+                        promise.failure(throwable);
+                    } else {
+                        promise.success(new Status.Success(value));
+                    }
+                });
 
         Patterns.pipe(promise.future(), getContext().dispatcher()).to(sender);
-    }
-
-    private boolean isRemoteSender(ActorRef sender) {
-        return !sender.path().address().hasLocalScope();
-    }
-
-    private Either<SerializedValue<?>, AkkaRpcException> serializeRemoteResultAndVerifySize(
-            Object result, String methodName) {
-        try {
-            SerializedValue<?> serializedResult = new SerializedValue<>(result);
-
-            long resultSize =
-                    serializedResult.getByteArray() == null
-                            ? 0
-                            : serializedResult.getByteArray().length;
-            if (resultSize > maximumFramesize) {
-                return Either.Right(
-                        new AkkaRpcException(
-                                "The method "
-                                        + methodName
-                                        + "'s result size "
-                                        + resultSize
-                                        + " exceeds the maximum size "
-                                        + maximumFramesize
-                                        + " ."));
-            } else {
-                return Either.Left(serializedResult);
-            }
-        } catch (IOException e) {
-            return Either.Right(
-                    new AkkaRpcException(
-                            "Failed to serialize the result for RPC call : " + methodName + '.',
-                            e));
-        }
     }
 
     /**

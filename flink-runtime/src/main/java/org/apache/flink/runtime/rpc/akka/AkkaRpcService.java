@@ -191,7 +191,6 @@ public class AkkaRpcService implements RpcService {
                             addressHostname.f1,
                             actorRef,
                             configuration.getTimeout(),
-                            configuration.getMaximumFramesize(),
                             null,
                             captureAskCallstacks);
                 });
@@ -212,7 +211,6 @@ public class AkkaRpcService implements RpcService {
                             addressHostname.f1,
                             actorRef,
                             configuration.getTimeout(),
-                            configuration.getMaximumFramesize(),
                             null,
                             () -> fencingToken,
                             captureAskCallstacks);
@@ -259,7 +257,6 @@ public class AkkaRpcService implements RpcService {
                             hostname,
                             actorRef,
                             configuration.getTimeout(),
-                            configuration.getMaximumFramesize(),
                             actorTerminationFuture,
                             ((FencedRpcEndpoint<?>) rpcEndpoint)::getFencingToken,
                             captureAskCallstacks);
@@ -272,7 +269,6 @@ public class AkkaRpcService implements RpcService {
                             hostname,
                             actorRef,
                             configuration.getTimeout(),
-                            configuration.getMaximumFramesize(),
                             actorTerminationFuture,
                             captureAskCallstacks);
         }
@@ -315,8 +311,7 @@ public class AkkaRpcService implements RpcService {
                                             akkaRpcActorType,
                                             rpcEndpoint,
                                             actorTerminationFuture,
-                                            getVersion(),
-                                            configuration.getMaximumFramesize()),
+                                            getVersion()),
                             rpcEndpoint.getEndpointId());
 
             final SupervisorActor.ActorRegistration actorRegistration =
@@ -345,7 +340,6 @@ public class AkkaRpcService implements RpcService {
                             rpcServer.getHostname(),
                             ((AkkaBasedEndpoint) rpcServer).getActorRef(),
                             configuration.getTimeout(),
-                            configuration.getMaximumFramesize(),
                             null,
                             () -> fencingToken,
                             captureAskCallstacks);

@@ -34,7 +34,6 @@ import org.apache.flink.runtime.rpc.messages.RpcInvocation;
 import org.apache.flink.runtime.rpc.messages.RunAsync;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.Preconditions;
-import org.apache.flink.util.SerializedValue;
 
 import akka.actor.ActorRef;
 import akka.pattern.Patterns;
@@ -51,7 +50,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
@@ -83,8 +81,6 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
     // default timeout for asks
     private final Time timeout;
 
-    private final long maximumFramesize;
-
     // null if gateway; otherwise non-null
     @Nullable private final CompletableFuture<Void> terminationFuture;
 
@@ -95,7 +91,6 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
             String hostname,
             ActorRef rpcEndpoint,
             Time timeout,
-            long maximumFramesize,
             @Nullable CompletableFuture<Void> terminationFuture,
             boolean captureAskCallStack) {
 
@@ -104,7 +99,6 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
         this.rpcEndpoint = Preconditions.checkNotNull(rpcEndpoint);
         this.isLocal = this.rpcEndpoint.path().address().hasLocalScope();
         this.timeout = Preconditions.checkNotNull(timeout);
-        this.maximumFramesize = maximumFramesize;
         this.terminationFuture = terminationFuture;
         this.captureAskCallStack = captureAskCallStack;
     }
@@ -235,8 +229,7 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
                             completableFuture.completeExceptionally(
                                     resolveTimeoutException(failure, callStackCapture, method));
                         } else {
-                            completableFuture.complete(
-                                    deserializeValueIfNeeded(resultValue, method));
+                            completableFuture.complete(resultValue);
                         }
                     });
 
@@ -267,31 +260,14 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
      * @throws IOException if we cannot serialize the RPC invocation parameters
      */
     protected RpcInvocation createRpcInvocationMessage(
-            final String methodName, final Class<?>[] parameterTypes, final Object[] args)
-            throws IOException {
+            final String methodName, final Class<?>[] parameterTypes, final Object[] args) {
         final RpcInvocation rpcInvocation;
 
         if (isLocal) {
             rpcInvocation = new LocalRpcInvocation(methodName, parameterTypes, args);
         } else {
-            try {
-                RemoteRpcInvocation remoteRpcInvocation =
-                        new RemoteRpcInvocation(methodName, parameterTypes, args);
-
-                if (remoteRpcInvocation.getSize() > maximumFramesize) {
-                    throw new IOException(
-                            String.format(
-                                    "The rpc invocation size %d exceeds the maximum akka framesize.",
-                                    remoteRpcInvocation.getSize()));
-                } else {
-                    rpcInvocation = remoteRpcInvocation;
-                }
-            } catch (IOException e) {
-                LOG.warn(
-                        "Could not create remote rpc invocation message. Failing rpc invocation because...",
-                        e);
-                throw e;
-            }
+            rpcInvocation =
+                    new RemoteRpcInvocation.MethodInvocation(methodName, parameterTypes, args);
         }
 
         return rpcInvocation;
@@ -386,23 +362,6 @@ class AkkaInvocationHandler implements InvocationHandler, AkkaBasedEndpoint, Rpc
     @Override
     public CompletableFuture<Void> getTerminationFuture() {
         return terminationFuture;
-    }
-
-    static Object deserializeValueIfNeeded(Object o, Method method) {
-        if (o instanceof SerializedValue) {
-            try {
-                return ((SerializedValue<?>) o)
-                        .deserializeValue(AkkaInvocationHandler.class.getClassLoader());
-            } catch (IOException | ClassNotFoundException e) {
-                throw new CompletionException(
-                        new RpcException(
-                                "Could not deserialize the serialized payload of RPC method : "
-                                        + method.getName(),
-                                e));
-            }
-        } else {
-            return o;
-        }
     }
 
     static Throwable resolveTimeoutException(
