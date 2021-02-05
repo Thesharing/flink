@@ -22,8 +22,11 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.scheduler.strategy.ConsumedPartitionGroup;
+import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -55,6 +58,8 @@ public class IntermediateResult {
 
     private final ResultPartitionType resultType;
 
+    private final Map<ConsumedPartitionGroup, ShuffleDescriptor[]> shuffleDescriptorsCache;
+
     public IntermediateResult(
             IntermediateDataSetID id,
             ExecutionJobVertex producer,
@@ -80,6 +85,8 @@ public class IntermediateResult {
 
         // The runtime type for this produced result
         this.resultType = checkNotNull(resultType);
+
+        this.shuffleDescriptorsCache = new HashMap<>();
     }
 
     public void setPartition(int partitionNumber, IntermediateResultPartition partition) {
@@ -145,6 +152,19 @@ public class IntermediateResult {
 
     public int getConnectionIndex() {
         return connectionIndex;
+    }
+
+    public ShuffleDescriptor[] getCachedShuffleDescriptors(ConsumedPartitionGroup partitionGroup) {
+        return shuffleDescriptorsCache.getOrDefault(partitionGroup, null);
+    }
+
+    public void cacheShuffleDescriptors(
+            ConsumedPartitionGroup partitionGroup, ShuffleDescriptor[] shuffleDescriptors) {
+        this.shuffleDescriptorsCache.put(partitionGroup, shuffleDescriptors);
+    }
+
+    public void notifyPartitionStateChanged() {
+        this.shuffleDescriptorsCache.clear();
     }
 
     @VisibleForTesting
