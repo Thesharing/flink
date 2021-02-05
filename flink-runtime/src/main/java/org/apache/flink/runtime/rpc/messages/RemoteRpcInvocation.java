@@ -38,7 +38,7 @@ public class RemoteRpcInvocation implements RpcInvocation, Serializable {
     private static final long serialVersionUID = 6179354390913843809L;
 
     // Serialized invocation data
-    private SerializedValue<RemoteRpcInvocation.MethodInvocation> serializedMethodInvocation;
+    private SerializedValue<MethodInvocation> serializedMethodInvocation;
 
     // Transient field which is lazily initialized upon first access to the invocation data
     private transient RemoteRpcInvocation.MethodInvocation methodInvocation;
@@ -142,30 +142,61 @@ public class RemoteRpcInvocation implements RpcInvocation, Serializable {
     // -------------------------------------------------------------------
 
     /** Wrapper class for the method invocation information. */
-    private static final class MethodInvocation implements Serializable {
+    public static final class MethodInvocation implements RpcInvocation, Serializable {
         private static final long serialVersionUID = 9187962608946082519L;
 
         private String methodName;
         private Class<?>[] parameterTypes;
         private Object[] args;
 
-        private MethodInvocation(
+        private transient String toString;
+
+        public MethodInvocation(
                 final String methodName, final Class<?>[] parameterTypes, final Object[] args) {
             this.methodName = methodName;
             this.parameterTypes = Preconditions.checkNotNull(parameterTypes);
             this.args = args;
         }
 
-        String getMethodName() {
+        @Override
+        public String getMethodName() {
             return methodName;
         }
 
-        Class<?>[] getParameterTypes() {
+        @Override
+        public Class<?>[] getParameterTypes() {
             return parameterTypes;
         }
 
-        Object[] getArgs() {
+        @Override
+        public Object[] getArgs() {
             return args;
+        }
+
+        @Override
+        public String toString() {
+            if (toString == null) {
+
+                Class<?>[] parameterTypes = getParameterTypes();
+                String methodName = getMethodName();
+
+                StringBuilder paramTypeStringBuilder = new StringBuilder(parameterTypes.length * 5);
+
+                if (parameterTypes.length > 0) {
+                    paramTypeStringBuilder.append(parameterTypes[0].getSimpleName());
+
+                    for (int i = 1; i < parameterTypes.length; i++) {
+                        paramTypeStringBuilder
+                                .append(", ")
+                                .append(parameterTypes[i].getSimpleName());
+                    }
+                }
+
+                toString =
+                        "RemoteRpcInvocation(" + methodName + '(' + paramTypeStringBuilder + "))";
+            }
+
+            return toString;
         }
 
         private void writeObject(ObjectOutputStream oos) throws IOException {
