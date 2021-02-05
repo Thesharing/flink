@@ -70,6 +70,7 @@ public class IntermediateResultPartition {
 
     public void markDataProduced() {
         hasDataProduced = true;
+        totalResult.notifyPartitionStateChanged();
     }
 
     public boolean isConsumable() {
@@ -87,6 +88,7 @@ public class IntermediateResultPartition {
             totalResult.incrementNumberOfRunningProducersAndGetRemaining();
         }
         hasDataProduced = false;
+        totalResult.notifyPartitionStateChanged();
     }
 
     public void setConsumers(ConsumerVertexGroup consumers) {
@@ -105,6 +107,7 @@ public class IntermediateResultPartition {
         }
 
         hasDataProduced = true;
+        totalResult.notifyPartitionStateChanged();
 
         final int refCnt = totalResult.decrementNumberOfRunningProducersAndGetRemaining();
 

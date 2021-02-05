@@ -129,15 +129,32 @@ public class TaskDeploymentDescriptorFactory {
                             partitionType,
                             queueToRequest,
                             getConsumedPartitionShuffleDescriptors(
-                                    partitions.getResultPartitions())));
+                                    consumedIntermediateResult, partitions)));
         }
 
         return inputGates;
     }
 
     private ShuffleDescriptor[] getConsumedPartitionShuffleDescriptors(
-            List<IntermediateResultPartitionID> partitions) {
+            IntermediateResult intermediateResult, ConsumedPartitionGroup consumedPartitionGroup) {
+        if (consumedPartitionGroup.getResultPartitions().size() == 0) {
+            return new ShuffleDescriptor[0];
+        }
+        ShuffleDescriptor[] cachedShuffleDescriptors =
+                intermediateResult.getCachedShuffleDescriptors(consumedPartitionGroup);
+        if (cachedShuffleDescriptors != null) {
+            return cachedShuffleDescriptors;
+        } else {
+            final ShuffleDescriptor[] shuffleDescriptors =
+                    buildConsumedPartitionShuffleDescriptrs(
+                            consumedPartitionGroup.getResultPartitions());
+            intermediateResult.cacheShuffleDescriptors(consumedPartitionGroup, shuffleDescriptors);
+            return shuffleDescriptors;
+        }
+    }
 
+    private ShuffleDescriptor[] buildConsumedPartitionShuffleDescriptrs(
+            List<IntermediateResultPartitionID> partitions) {
         ShuffleDescriptor[] shuffleDescriptors = new ShuffleDescriptor[partitions.size()];
         // Each edge is connected to a different result partition
         for (int i = 0; i < partitions.size(); i++) {
