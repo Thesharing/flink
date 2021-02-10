@@ -29,7 +29,9 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -41,8 +43,11 @@ public class ExecutionGraphToInputsLocationsRetrieverAdapter implements InputsLo
 
     private final ExecutionGraph executionGraph;
 
+    private final Map<ConsumedPartitionGroup, List<ExecutionVertexID>> partitionGroupProducers;
+
     public ExecutionGraphToInputsLocationsRetrieverAdapter(ExecutionGraph executionGraph) {
         this.executionGraph = checkNotNull(executionGraph);
+        this.partitionGroupProducers = new HashMap<>();
     }
 
     @Override
@@ -54,12 +59,16 @@ public class ExecutionGraphToInputsLocationsRetrieverAdapter implements InputsLo
                 new ArrayList<>(ev.getNumberOfInputs());
         for (ConsumedPartitionGroup consumedPartitions : ev.getAllConsumedPartitions()) {
             List<ExecutionVertexID> producers =
-                    new ArrayList<>(consumedPartitions.getResultPartitions().size());
-            for (IntermediateResultPartitionID consumedPartitionId :
-                    consumedPartitions.getResultPartitions()) {
-                ExecutionVertex producer =
-                        executionGraph.getResultPartition(consumedPartitionId).getProducer();
-                producers.add(producer.getID());
+                    partitionGroupProducers.getOrDefault(consumedPartitions, null);
+            if (producers == null) {
+                producers = new ArrayList<>(consumedPartitions.getResultPartitions().size());
+                for (IntermediateResultPartitionID consumedPartitionId :
+                        consumedPartitions.getResultPartitions()) {
+                    ExecutionVertex producer =
+                            executionGraph.getResultPartition(consumedPartitionId).getProducer();
+                    producers.add(producer.getID());
+                }
+                partitionGroupProducers.put(consumedPartitions, producers);
             }
             resultPartitionProducers.add(producers);
         }
