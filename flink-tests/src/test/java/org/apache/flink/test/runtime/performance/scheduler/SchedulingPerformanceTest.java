@@ -18,15 +18,10 @@
 
 package org.apache.flink.test.runtime.performance.scheduler;
 
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.PipelinedRegionSchedulingStrategy;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
@@ -41,28 +36,33 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createAndInitExecutionGraph;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createDefaultJobVertices;
+
 /** Performance test for task scheduling. */
 public class SchedulingPerformanceTest extends TestLogger {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchedulingPerformanceTest.class);
 
-    private static final int PARALLELISM = SchedulerPerformanceTestUtil.PARALLELISM;
-
     private TestingSchedulerOperations schedulerOperations;
+    private List<JobVertex> jobVertices;
+    private ExecutionGraph executionGraph;
     private SchedulingTopology schedulingTopology;
+
+    public void initSchedulingTopology(JobConfiguration jobConfiguration) throws Exception {
+        schedulerOperations = new TestingSchedulerOperations();
+        jobVertices = createDefaultJobVertices(jobConfiguration);
+        executionGraph = createAndInitExecutionGraph(jobVertices, jobConfiguration);
+        schedulingTopology = executionGraph.getSchedulingTopology();
+    }
 
     @Test
     public void testInitPipelinedRegionSchedulingStrategyInStreamingJobPerformance()
             throws Exception {
-        schedulerOperations = new TestingSchedulerOperations();
 
-        schedulingTopology =
-                SchedulerPerformanceTestUtil.createSchedulingTopology(
-                        PARALLELISM,
-                        DistributionPattern.ALL_TO_ALL,
-                        ResultPartitionType.PIPELINED,
-                        ScheduleMode.EAGER,
-                        ExecutionMode.PIPELINED);
+        JobConfiguration jobConfiguration = JobConfiguration.STREAMING;
+
+        initSchedulingTopology(jobConfiguration);
 
         final long startTime = System.nanoTime();
 
@@ -78,20 +78,16 @@ public class SchedulingPerformanceTest extends TestLogger {
 
     @Test
     public void testSchedulingTasksInStreamingJobPerformance() throws Exception {
-        schedulerOperations = new TestingSchedulerOperations();
+        JobConfiguration jobConfiguration = JobConfiguration.STREAMING;
 
-        schedulingTopology =
-                SchedulerPerformanceTestUtil.createSchedulingTopology(
-                        PARALLELISM,
-                        DistributionPattern.ALL_TO_ALL,
-                        ResultPartitionType.PIPELINED,
-                        ScheduleMode.EAGER,
-                        ExecutionMode.PIPELINED);
-
-        final long startTime = System.nanoTime();
+        initSchedulingTopology(jobConfiguration);
 
         final PipelinedRegionSchedulingStrategy schedulingStrategy =
                 new PipelinedRegionSchedulingStrategy(schedulerOperations, schedulingTopology);
+
+        final long startTime = System.nanoTime();
+
+        schedulingStrategy.startScheduling();
 
         final double duration = (System.nanoTime() - startTime) / 1_000_000.0;
 
@@ -102,17 +98,10 @@ public class SchedulingPerformanceTest extends TestLogger {
 
     @Test
     public void testInitPipelinedRegionSchedulingStrategyInBatchJobPerformance() throws Exception {
-        schedulerOperations = new TestingSchedulerOperations();
 
-        schedulingTopology =
-                SchedulerPerformanceTestUtil.createSchedulingTopology(
-                        PARALLELISM,
-                        DistributionPattern.ALL_TO_ALL,
-                        ResultPartitionType.BLOCKING,
-                        ScheduleMode.LAZY_FROM_SOURCES,
-                        ExecutionMode.BATCH);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        schedulingTopology.getAllPipelinedRegions();
+        initSchedulingTopology(jobConfiguration);
 
         final long startTime = System.nanoTime();
 
@@ -126,17 +115,10 @@ public class SchedulingPerformanceTest extends TestLogger {
 
     @Test
     public void testSchedulingSourceTaskInBatchJobPerformance() throws Exception {
-        schedulerOperations = new TestingSchedulerOperations();
 
-        schedulingTopology =
-                SchedulerPerformanceTestUtil.createSchedulingTopology(
-                        PARALLELISM,
-                        DistributionPattern.ALL_TO_ALL,
-                        ResultPartitionType.BLOCKING,
-                        ScheduleMode.LAZY_FROM_SOURCES,
-                        ExecutionMode.BATCH);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        schedulingTopology.getAllPipelinedRegions();
+        initSchedulingTopology(jobConfiguration);
 
         final PipelinedRegionSchedulingStrategy schedulingStrategy =
                 new PipelinedRegionSchedulingStrategy(schedulerOperations, schedulingTopology);
@@ -154,26 +136,22 @@ public class SchedulingPerformanceTest extends TestLogger {
 
     @Test
     public void testSchedulingSinkTaskInBatchJobPerformance() throws Exception {
-        schedulerOperations = new TestingSchedulerOperations();
 
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
-
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
-
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-        schedulingTopology = eg.getSchedulingTopology();
+        initSchedulingTopology(jobConfiguration);
 
         final PipelinedRegionSchedulingStrategy schedulingStrategy =
                 new PipelinedRegionSchedulingStrategy(schedulerOperations, schedulingTopology);
 
-        for (IntermediateResult result : eg.getAllIntermediateResults().values()) {
+        // When we trying to scheduling downstream tasks via
+        // onExecutionStateChange(ExecutionState.FINISHED),
+        // the result partitions of upstream tasks need to be CONSUMABLE.
+        // The CONSUMABLE status is determined by the variable "numberOfRunningProducers" of the
+        // IntermediateResult.
+        // Its value cannot be changed by any public methods.
+        // So here we use reflections to modify this value and then schedule the downstream tasks.
+        for (IntermediateResult result : executionGraph.getAllIntermediateResults().values()) {
             Field f = result.getClass().getDeclaredField("numberOfRunningProducers");
             f.setAccessible(true);
             AtomicInteger numberOfRunningProducers = (AtomicInteger) f.get(result);
@@ -181,7 +159,10 @@ public class SchedulingPerformanceTest extends TestLogger {
         }
 
         ExecutionVertexID executionVertexID =
-                eg.getJobVertex(jobVertices.get(0).getID()).getTaskVertices()[0].getID();
+                executionGraph
+                        .getJobVertex(jobVertices.get(0).getID())
+                        .getTaskVertices()[0]
+                        .getID();
 
         final long startTime = System.nanoTime();
 

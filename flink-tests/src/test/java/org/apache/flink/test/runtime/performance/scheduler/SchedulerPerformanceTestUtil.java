@@ -19,39 +19,24 @@
 package org.apache.flink.test.runtime.performance.scheduler;
 
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.api.common.time.Deadline;
-import org.apache.flink.configuration.JobManagerOptions;
-import org.apache.flink.runtime.akka.AkkaUtils;
-import org.apache.flink.runtime.blob.VoidBlobWriter;
-import org.apache.flink.runtime.clusterframework.types.AllocationID;
-import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
+import org.apache.flink.runtime.JobException;
+import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
+import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.executiongraph.AccessExecutionJobVertex;
-import org.apache.flink.runtime.executiongraph.AccessExecutionVertex;
-import org.apache.flink.runtime.executiongraph.DummyJobInformation;
-import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
-import org.apache.flink.runtime.executiongraph.JobInformation;
-import org.apache.flink.runtime.executiongraph.NoOpExecutionDeploymentListener;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
-import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.RegionPartitionReleaseStrategy;
-import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.scheduler.DefaultScheduler;
-import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
-import org.apache.flink.runtime.shuffle.NettyShuffleMaster;
-import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
+import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
-import org.apache.flink.runtime.testingUtils.TestingUtils;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.util.TestLogger;
 
@@ -59,118 +44,87 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /** Utilities for Runtime Performance Tests. */
 public class SchedulerPerformanceTestUtil extends TestLogger {
 
-    public static final int PARALLELISM = 8000;
+    public static List<JobVertex> createDefaultJobVertices(JobConfiguration jobConfiguration) {
 
-    public static List<JobVertex> createDefaultJobVertices(
-            int parallelism,
-            DistributionPattern distributionPattern,
-            ResultPartitionType resultPartitionType) {
-
-        List<JobVertex> jobVertices = new ArrayList<>();
+        final List<JobVertex> jobVertices = new ArrayList<>();
 
         final JobVertex source = new JobVertex("source");
         source.setInvokableClass(NoOpInvokable.class);
-        source.setParallelism(parallelism);
+        source.setParallelism(jobConfiguration.getParallelism());
         jobVertices.add(source);
 
         final JobVertex sink = new JobVertex("sink");
         sink.setInvokableClass(NoOpInvokable.class);
-        sink.setParallelism(parallelism);
+        sink.setParallelism(jobConfiguration.getParallelism());
         jobVertices.add(sink);
 
-        sink.connectNewDataSetAsInput(source, distributionPattern, resultPartitionType);
+        sink.connectNewDataSetAsInput(
+                source,
+                jobConfiguration.getDistributionPattern(),
+                jobConfiguration.getResultPartitionType());
 
         return jobVertices;
     }
 
+    public static JobGraph createJobGraph(JobConfiguration jobConfiguration) throws IOException {
+        return createJobGraph(Collections.emptyList(), jobConfiguration);
+    }
+
     public static JobGraph createJobGraph(
-            List<JobVertex> jobVertices, ScheduleMode scheduleMode, ExecutionMode executionMode)
-            throws IOException {
+            List<JobVertex> jobVertices, JobConfiguration jobConfiguration) throws IOException {
 
         final JobGraph jobGraph = new JobGraph(jobVertices.toArray(new JobVertex[0]));
 
-        jobGraph.setScheduleMode(scheduleMode);
-        ExecutionConfig executionConfig = new ExecutionConfig();
-        executionConfig.setExecutionMode(executionMode);
+        jobGraph.setScheduleMode(jobConfiguration.getScheduleMode());
+
+        final ExecutionConfig executionConfig = new ExecutionConfig();
+        executionConfig.setExecutionMode(jobConfiguration.getExecutionMode());
         jobGraph.setExecutionConfig(executionConfig);
 
         return jobGraph;
     }
 
-    public static ExecutionGraph createExecutionGraph(JobGraph jobGraph) throws IOException {
+    public static TestingComponentMainThreadExecutor createMainThreadExecutor() {
+        final ScheduledExecutorService scheduledExecutorService =
+                Executors.newSingleThreadScheduledExecutor();
 
-        final JobInformation jobInformation =
-                new DummyJobInformation(jobGraph.getJobID(), jobGraph.getName());
-
-        final ClassLoader classLoader = ExecutionGraph.class.getClassLoader();
-        return new ExecutionGraph(
-                jobInformation,
-                TestingUtils.defaultExecutor(),
-                TestingUtils.defaultExecutor(),
-                AkkaUtils.getDefaultTimeout(),
-                JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE.defaultValue(),
-                classLoader,
-                VoidBlobWriter.getInstance(),
-                new RegionPartitionReleaseStrategy.Factory(),
-                NettyShuffleMaster.INSTANCE,
-                NoOpJobMasterPartitionTracker.INSTANCE,
-                jobGraph.getScheduleMode(),
-                NoOpExecutionDeploymentListener.INSTANCE,
-                (execution, newState) -> {},
-                System.currentTimeMillis());
-    }
-
-    public static List<SlotOffer> createSlotOffers(int slotNum) {
-        return IntStream.range(0, slotNum)
-                .mapToObj(i -> new SlotOffer(new AllocationID(), i, ResourceProfile.UNKNOWN))
-                .limit(20)
-                .collect(Collectors.toList());
+        return new TestingComponentMainThreadExecutor(
+                ComponentMainThreadExecutorServiceAdapter.forSingleThreadExecutor(
+                        scheduledExecutorService));
     }
 
     public static ExecutionGraph createAndInitExecutionGraph(
-            int parallelism,
-            DistributionPattern distributionPattern,
-            ResultPartitionType resultPartitionType,
-            ScheduleMode scheduleMode,
-            ExecutionMode executionMode)
+            List<JobVertex> jobVertices,
+            JobConfiguration jobConfiguration,
+            ComponentMainThreadExecutor mainThreadExecutor)
             throws Exception {
 
-        final List<JobVertex> jobVertices =
-                createDefaultJobVertices(parallelism, distributionPattern, resultPartitionType);
+        final JobGraph jobGraph = createJobGraph(jobVertices, jobConfiguration);
 
-        final JobGraph jobGraph = createJobGraph(jobVertices, scheduleMode, executionMode);
+        final DefaultScheduler scheduler =
+                SchedulerTestingUtils.createScheduler(jobGraph, mainThreadExecutor);
 
-        final ExecutionGraph eg = createExecutionGraph(jobGraph);
-
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-        return eg;
+        return scheduler.getExecutionGraph();
     }
 
-    public static SchedulingTopology createSchedulingTopology(
-            int parallelism,
-            DistributionPattern distributionPattern,
-            ResultPartitionType resultPartitionType,
-            ScheduleMode scheduleMode,
-            ExecutionMode executionMode)
-            throws Exception {
-        ExecutionGraph eg =
-                createAndInitExecutionGraph(
-                        parallelism,
-                        distributionPattern,
-                        resultPartitionType,
-                        scheduleMode,
-                        executionMode);
-        return eg.getSchedulingTopology();
+    public static ExecutionGraph createAndInitExecutionGraph(
+            List<JobVertex> jobVertices, JobConfiguration jobConfiguration) throws Exception {
+
+        return createAndInitExecutionGraph(
+                jobVertices,
+                jobConfiguration,
+                ComponentMainThreadExecutorServiceAdapter.forMainThread());
     }
 
     public static void waitForListFulfilled(Collection<?> list, int length, long maxWaitMillis)
@@ -205,41 +159,36 @@ public class SchedulerPerformanceTestUtil extends TestLogger {
             JobVertexID jobVertexID,
             TestingLogicalSlotBuilder slotBuilder,
             boolean sendScheduleOrUpdateConsumersMessage)
-            throws Exception {
+            throws JobException, ExecutionException, InterruptedException {
 
         for (ExecutionVertex vertex : executionGraph.getJobVertex(jobVertexID).getTaskVertices()) {
             LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-            vertex.deployToSlot(slot);
-            vertex.getCurrentExecutionAttempt()
+            Execution execution = vertex.getCurrentExecutionAttempt();
+            execution
                     .registerProducedPartitions(
                             slot.getTaskManagerLocation(), sendScheduleOrUpdateConsumersMessage)
                     .get();
+            assignResourceAndDeploy(vertex, slot);
         }
     }
 
     public static void deployAllTasks(
-            ExecutionGraph executionGraph, TestingLogicalSlotBuilder slotBuilder) throws Exception {
+            ExecutionGraph executionGraph, TestingLogicalSlotBuilder slotBuilder)
+            throws JobException, ExecutionException, InterruptedException {
 
         for (ExecutionVertex vertex : executionGraph.getAllExecutionVertices()) {
             LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-            vertex.deployToSlot(slot);
             vertex.getCurrentExecutionAttempt()
                     .registerProducedPartitions(slot.getTaskManagerLocation(), true)
                     .get();
+            assignResourceAndDeploy(vertex, slot);
         }
     }
 
-    public static void transitionTaskStatus(
-            DefaultScheduler scheduler,
-            AccessExecutionJobVertex vertex,
-            int subtask,
-            ExecutionState executionState) {
-
-        final ExecutionAttemptID attemptId =
-                vertex.getTaskVertices()[subtask].getCurrentExecutionAttempt().getAttemptId();
-        scheduler.updateTaskExecutionState(
-                new TaskExecutionState(
-                        scheduler.getJobGraph().getJobID(), attemptId, executionState));
+    private static void assignResourceAndDeploy(ExecutionVertex vertex, LogicalSlot slot)
+            throws JobException {
+        vertex.tryAssignResource(slot);
+        vertex.deploy();
     }
 
     public static void transitionTaskStatus(
@@ -264,19 +213,6 @@ public class SchedulerPerformanceTestUtil extends TestLogger {
                                     executionGraph.getJobID(),
                                     vertex.getCurrentExecutionAttempt().getAttemptId(),
                                     state)));
-        }
-    }
-
-    public static void transitionAllTaskStatus(
-            DefaultScheduler scheduler,
-            AccessExecutionJobVertex vertex,
-            ExecutionState executionState) {
-
-        for (AccessExecutionVertex ev : vertex.getTaskVertices()) {
-            ExecutionAttemptID attemptId = ev.getCurrentExecutionAttempt().getAttemptId();
-            scheduler.updateTaskExecutionState(
-                    new TaskExecutionState(
-                            scheduler.getJobGraph().getJobID(), attemptId, executionState));
         }
     }
 }

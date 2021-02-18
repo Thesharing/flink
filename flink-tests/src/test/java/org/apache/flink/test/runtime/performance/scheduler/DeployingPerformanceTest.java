@@ -18,18 +18,13 @@
 
 package org.apache.flink.test.runtime.performance.scheduler;
 
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.rpc.messages.RemoteRpcInvocation;
@@ -49,57 +44,63 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.test.runtime.performance.scheduler.MemoryUtil.convertToMiB;
 import static org.apache.flink.test.runtime.performance.scheduler.MemoryUtil.getHeapMemory;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createAndInitExecutionGraph;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createDefaultJobVertices;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.waitForListFulfilled;
 
 /** Performance tests for deploying tasks. */
 public class DeployingPerformanceTest {
     private static final Logger LOG = LoggerFactory.getLogger(DeployingPerformanceTest.class);
 
-    public static final int PARALLELISM = SchedulerPerformanceTestUtil.PARALLELISM;
+    private List<JobVertex> jobVertices;
+    private ExecutionGraph executionGraph;
+    private BlockingQueue<TaskDeploymentDescriptor> taskDeploymentDescriptors;
 
-    @Test
-    public void testDeployInStreamingTaskPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.PIPELINED);
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.EAGER, ExecutionMode.PIPELINED);
+    public void createAndSetupExecutionGraph(JobConfiguration jobConfiguration) throws Exception {
 
-        final BlockingQueue<TaskDeploymentDescriptor> taskDeploymentDescriptors =
-                new ArrayBlockingQueue<>(PARALLELISM * 2);
+        jobVertices = createDefaultJobVertices(jobConfiguration);
+
+        executionGraph = createAndInitExecutionGraph(jobVertices, jobConfiguration);
+
+        taskDeploymentDescriptors = new ArrayBlockingQueue<>(jobConfiguration.getParallelism() * 2);
+
         final SimpleAckingTaskManagerGateway taskManagerGateway =
                 new SimpleAckingTaskManagerGateway();
         taskManagerGateway.setSubmitConsumer(taskDeploymentDescriptors::offer);
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-        TestingLogicalSlotBuilder slotBuilder =
+        final TestingLogicalSlotBuilder slotBuilder =
                 new TestingLogicalSlotBuilder().setTaskManagerGateway(taskManagerGateway);
-        for (ExecutionJobVertex ejv : eg.getVerticesTopologically()) {
+
+        for (ExecutionJobVertex ejv : executionGraph.getVerticesTopologically()) {
             for (ExecutionVertex ev : ejv.getTaskVertices()) {
-                Execution execution = ev.getCurrentExecutionAttempt();
-                LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
+                final LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
+                final Execution execution = ev.getCurrentExecutionAttempt();
                 execution.registerProducedPartitions(slot.getTaskManagerLocation(), true).get();
                 if (!execution.tryAssignResource(slot)) {
                     throw new RuntimeException("Error when assigning slot to execution.");
                 }
             }
         }
+    }
+
+    @Test
+    public void testDeployInStreamingTaskPerformance() throws Exception {
+
+        JobConfiguration configuration = JobConfiguration.STREAMING;
+
+        createAndSetupExecutionGraph(configuration);
 
         final long startTime = System.nanoTime();
 
-        for (ExecutionJobVertex ejv : eg.getVerticesTopologically()) {
+        for (ExecutionJobVertex ejv : executionGraph.getVerticesTopologically()) {
             for (ExecutionVertex ev : ejv.getTaskVertices()) {
                 Execution execution = ev.getCurrentExecutionAttempt();
                 execution.deploy();
             }
         }
-
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 
-        SchedulerPerformanceTestUtil.waitForListFulfilled(
-                taskDeploymentDescriptors, PARALLELISM * 2, 1000L);
+        waitForListFulfilled(taskDeploymentDescriptors, configuration.getParallelism() * 2, 1000L);
 
         LOG.info(
                 String.format(
@@ -108,42 +109,18 @@ public class DeployingPerformanceTest {
 
     @Test
     public void testDeployInBatchTaskPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
 
-        final BlockingQueue<TaskDeploymentDescriptor> taskDeploymentDescriptors =
-                new ArrayBlockingQueue<>(PARALLELISM * 2);
-        final SimpleAckingTaskManagerGateway taskManagerGateway =
-                new SimpleAckingTaskManagerGateway();
-        taskManagerGateway.setSubmitConsumer(taskDeploymentDescriptors::offer);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+        createAndSetupExecutionGraph(jobConfiguration);
 
-        TestingLogicalSlotBuilder slotBuilder =
-                new TestingLogicalSlotBuilder().setTaskManagerGateway(taskManagerGateway);
-        for (ExecutionJobVertex ejv : eg.getVerticesTopologically()) {
-            for (ExecutionVertex ev : ejv.getTaskVertices()) {
-                Execution execution = ev.getCurrentExecutionAttempt();
-                LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-                execution.registerProducedPartitions(slot.getTaskManagerLocation(), true).get();
-                if (!execution.tryAssignResource(slot)) {
-                    throw new RuntimeException("Error when assigning slot to execution.");
-                }
-            }
-        }
-
-        JobVertex source = jobVertices.get(0);
+        final JobVertex source = jobVertices.get(0);
 
         MemoryUsage startMemoryUsage = getHeapMemory();
 
         final long sourceStartTime = System.nanoTime();
 
-        for (ExecutionVertex ev : eg.getJobVertex(source.getID()).getTaskVertices()) {
+        for (ExecutionVertex ev : executionGraph.getJobVertex(source.getID()).getTaskVertices()) {
             Execution execution = ev.getCurrentExecutionAttempt();
             execution.deploy();
         }
@@ -155,16 +132,15 @@ public class DeployingPerformanceTest {
         final float sourceHeapUsed =
                 convertToMiB(endMemoryUsage.getUsed() - startMemoryUsage.getUsed());
 
-        SchedulerPerformanceTestUtil.waitForListFulfilled(
-                taskDeploymentDescriptors, PARALLELISM, 1000L);
+        waitForListFulfilled(taskDeploymentDescriptors, jobConfiguration.getParallelism(), 1000L);
 
-        JobVertex sink = jobVertices.get(1);
+        final JobVertex sink = jobVertices.get(1);
 
         startMemoryUsage = getHeapMemory();
 
         final long sinkStartTime = System.nanoTime();
 
-        for (ExecutionVertex ev : eg.getJobVertex(sink.getID()).getTaskVertices()) {
+        for (ExecutionVertex ev : executionGraph.getJobVertex(sink.getID()).getTaskVertices()) {
             Execution execution = ev.getCurrentExecutionAttempt();
             execution.deploy();
         }
@@ -177,7 +153,7 @@ public class DeployingPerformanceTest {
                 convertToMiB(endMemoryUsage.getUsed() - startMemoryUsage.getUsed());
 
         SchedulerPerformanceTestUtil.waitForListFulfilled(
-                taskDeploymentDescriptors, PARALLELISM * 2, 1000L);
+                taskDeploymentDescriptors, jobConfiguration.getParallelism() * 2, 1000L);
 
         LOG.info(String.format("Duration of deploying source tasks is: %d ms", sourceDuration));
         LOG.info(String.format("Duration of deploying sink tasks is: %d ms", sinkDuration));
@@ -191,34 +167,10 @@ public class DeployingPerformanceTest {
 
     @Test
     public void testSubmitTaskInBatchTaskPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
 
-        final BlockingQueue<TaskDeploymentDescriptor> taskDeploymentDescriptors =
-                new ArrayBlockingQueue<>(PARALLELISM * 2);
-        final SimpleAckingTaskManagerGateway taskManagerGateway =
-                new SimpleAckingTaskManagerGateway();
-        taskManagerGateway.setSubmitConsumer(taskDeploymentDescriptors::offer);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-        TestingLogicalSlotBuilder slotBuilder =
-                new TestingLogicalSlotBuilder().setTaskManagerGateway(taskManagerGateway);
-        for (ExecutionJobVertex ejv : eg.getVerticesTopologically()) {
-            for (ExecutionVertex ev : ejv.getTaskVertices()) {
-                Execution execution = ev.getCurrentExecutionAttempt();
-                LogicalSlot slot = slotBuilder.createTestingLogicalSlot();
-                execution.registerProducedPartitions(slot.getTaskManagerLocation(), true).get();
-                if (!execution.tryAssignResource(slot)) {
-                    throw new RuntimeException("Error when assigning slot to execution.");
-                }
-            }
-        }
+        createAndSetupExecutionGraph(jobConfiguration);
 
         Class<?>[] types = {TaskDeploymentDescriptor.class};
 
@@ -227,11 +179,11 @@ public class DeployingPerformanceTest {
         MemoryUsage startMemoryUsage = getHeapMemory();
 
         List<RemoteRpcInvocation> sourceInvocation =
-                Collections.synchronizedList(new ArrayList<>(PARALLELISM));
+                Collections.synchronizedList(new ArrayList<>(jobConfiguration.getParallelism()));
 
         final long sourceStartTime = System.nanoTime();
 
-        for (ExecutionVertex ev : eg.getJobVertex(source.getID()).getTaskVertices()) {
+        for (ExecutionVertex ev : executionGraph.getJobVertex(source.getID()).getTaskVertices()) {
             Execution execution = ev.getCurrentExecutionAttempt();
             Object[] args = {execution.createTaskDeploymentDescriptor()};
             CompletableFuture.runAsync(
@@ -243,7 +195,7 @@ public class DeployingPerformanceTest {
                             e.printStackTrace();
                         }
                     },
-                    eg.getFutureExecutor());
+                    executionGraph.getFutureExecutor());
         }
 
         final long sourceDuration = (System.nanoTime() - sourceStartTime) / 1_000_000;
@@ -264,11 +216,11 @@ public class DeployingPerformanceTest {
         startMemoryUsage = getHeapMemory();
 
         List<RemoteRpcInvocation> sinkInvocations =
-                Collections.synchronizedList(new ArrayList<>(PARALLELISM));
+                Collections.synchronizedList(new ArrayList<>(jobConfiguration.getParallelism()));
 
         final long sinkStartTime = System.nanoTime();
 
-        for (ExecutionVertex ev : eg.getJobVertex(sink.getID()).getTaskVertices()) {
+        for (ExecutionVertex ev : executionGraph.getJobVertex(sink.getID()).getTaskVertices()) {
             Execution execution = ev.getCurrentExecutionAttempt();
             Object[] args = {execution.createTaskDeploymentDescriptor()};
             CompletableFuture.runAsync(

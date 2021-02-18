@@ -18,14 +18,9 @@
 
 package org.apache.flink.test.runtime.performance.scheduler;
 
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.util.TestLogger;
 
@@ -35,42 +30,41 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createAndInitExecutionGraph;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createDefaultJobVertices;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.deployTasks;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.transitionTaskStatus;
+
 /** Performance test for partition release. */
 public class PartitionReleasePerformanceTest extends TestLogger {
 
     private static final Logger LOG =
             LoggerFactory.getLogger(PartitionReleasePerformanceTest.class);
 
-    public static final int PARALLELISM = SchedulerPerformanceTestUtil.PARALLELISM;
-
     @Test
     public void testReleaseUpstreamPartitionPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
 
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
+        final JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
+        final List<JobVertex> jobVertices = createDefaultJobVertices(jobConfiguration);
 
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+        final ExecutionGraph executionGraph =
+                createAndInitExecutionGraph(jobVertices, jobConfiguration);
 
-        TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
+        final JobVertex source = jobVertices.get(0);
+        final JobVertex sink = jobVertices.get(1);
 
-        JobVertex source = jobVertices.get(0);
-        SchedulerPerformanceTestUtil.deployTasks(eg, source.getID(), slotBuilder, false);
-        SchedulerPerformanceTestUtil.transitionTaskStatus(
-                eg, source.getID(), ExecutionState.FINISHED);
+        final TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
 
-        JobVertex sink = jobVertices.get(1);
-        SchedulerPerformanceTestUtil.deployTasks(eg, sink.getID(), slotBuilder, false);
+        deployTasks(executionGraph, source.getID(), slotBuilder, true);
+
+        transitionTaskStatus(executionGraph, source.getID(), ExecutionState.FINISHED);
+
+        deployTasks(executionGraph, sink.getID(), slotBuilder, true);
 
         final long startTime = System.nanoTime();
 
-        SchedulerPerformanceTestUtil.transitionTaskStatus(
-                eg, sink.getID(), ExecutionState.FINISHED);
+        transitionTaskStatus(executionGraph, sink.getID(), ExecutionState.FINISHED);
 
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 

@@ -18,13 +18,10 @@
 
 package org.apache.flink.test.runtime.performance.scheduler;
 
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
+import org.apache.flink.runtime.executiongraph.TestingExecutionGraphBuilder;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.Test;
@@ -36,6 +33,8 @@ import java.util.List;
 
 import static org.apache.flink.test.runtime.performance.scheduler.MemoryUtil.convertToMiB;
 import static org.apache.flink.test.runtime.performance.scheduler.MemoryUtil.getHeapMemory;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createDefaultJobVertices;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createJobGraph;
 
 /** Performance test for topology building. */
 public class TopologyBuildingPerformanceTest extends TestLogger {
@@ -43,22 +42,20 @@ public class TopologyBuildingPerformanceTest extends TestLogger {
     private static final Logger LOG =
             LoggerFactory.getLogger(TopologyBuildingPerformanceTest.class);
 
-    public static final int PARALLELISM = SchedulerPerformanceTestUtil.PARALLELISM;
-
     @Test
     public void testBuildExecutionGraphInStreamingJobPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.PIPELINED);
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.EAGER, ExecutionMode.PIPELINED);
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
+        JobConfiguration jobConfiguration = JobConfiguration.STREAMING;
+
+        final List<JobVertex> jobVertices = createDefaultJobVertices(jobConfiguration);
+        final JobGraph jobGraph = createJobGraph(jobConfiguration);
+
+        final ExecutionGraph executionGraph =
+                TestingExecutionGraphBuilder.newBuilder().setJobGraph(jobGraph).build();
 
         final long startTime = System.nanoTime();
 
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+        executionGraph.attachJobGraph(jobVertices);
 
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 
@@ -67,20 +64,20 @@ public class TopologyBuildingPerformanceTest extends TestLogger {
 
     @Test
     public void testBuildExecutionGraphInBatchJobPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
+
+        final List<JobVertex> jobVertices = createDefaultJobVertices(jobConfiguration);
+        final JobGraph jobGraph = createJobGraph(jobConfiguration);
+
+        final ExecutionGraph executionGraph =
+                TestingExecutionGraphBuilder.newBuilder().setJobGraph(jobGraph).build();
 
         MemoryUsage startMemoryUsage = getHeapMemory();
 
         final long startTime = System.nanoTime();
 
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+        executionGraph.attachJobGraph(jobVertices);
 
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 

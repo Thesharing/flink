@@ -18,15 +18,10 @@
 
 package org.apache.flink.test.runtime.performance.scheduler;
 
-import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.failover.flip1.RestartPipelinedRegionFailoverStrategy;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
@@ -39,105 +34,100 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Set;
 
+import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.switchAllVerticesToRunning;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createAndInitExecutionGraph;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.createDefaultJobVertices;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.deployAllTasks;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.deployTasks;
+import static org.apache.flink.test.runtime.performance.scheduler.SchedulerPerformanceTestUtil.transitionTaskStatus;
+
 /** Performance test for region failover. */
 public class RegionFailoverPerformanceTest extends TestLogger {
 
     private static final Logger LOG = LoggerFactory.getLogger(RegionFailoverPerformanceTest.class);
 
-    public static final int PARALLELISM = SchedulerPerformanceTestUtil.PARALLELISM;
+    private JobVertex source;
+    private List<JobVertex> jobVertices;
 
+    private ExecutionGraph executionGraph;
     private SchedulingTopology schedulingTopology;
+    private RestartPipelinedRegionFailoverStrategy strategy;
+
+    public void createRestartPipelinedRegionFailoverStrategy(JobConfiguration jobConfiguration)
+            throws Exception {
+        jobVertices = createDefaultJobVertices(jobConfiguration);
+        source = jobVertices.get(0);
+        executionGraph = createAndInitExecutionGraph(jobVertices, jobConfiguration);
+        schedulingTopology = executionGraph.getSchedulingTopology();
+        strategy = new RestartPipelinedRegionFailoverStrategy(schedulingTopology);
+    }
 
     @Test
     public void testCalculateRegionToRestartInStreamingJobPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.PIPELINED);
 
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.EAGER, ExecutionMode.PIPELINED);
+        JobConfiguration jobConfiguration = JobConfiguration.STREAMING;
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
-
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
-
-        schedulingTopology = eg.getSchedulingTopology();
-
-        JobVertex source = jobVertices.get(0);
+        createRestartPipelinedRegionFailoverStrategy(jobConfiguration);
 
         TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
-        SchedulerPerformanceTestUtil.deployAllTasks(eg, slotBuilder);
-        SchedulerPerformanceTestUtil.transitionAllTaskStatus(eg, ExecutionState.RUNNING);
 
-        RestartPipelinedRegionFailoverStrategy strategy =
-                new RestartPipelinedRegionFailoverStrategy(schedulingTopology);
+        deployAllTasks(executionGraph, slotBuilder);
+
+        switchAllVerticesToRunning(executionGraph);
 
         final long startTime = System.nanoTime();
 
         Set<ExecutionVertexID> tasks =
                 strategy.getTasksNeedingRestart(
-                        eg.getJobVertex(source.getID()).getTaskVertices()[0].getID(),
+                        executionGraph.getJobVertex(source.getID()).getTaskVertices()[0].getID(),
                         new Exception("For test."));
 
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 
         LOG.info(String.format("Duration of failover in the streaming task is : %d ms", duration));
 
-        if (tasks.size() != PARALLELISM * 2) {
+        if (tasks.size() != jobConfiguration.getParallelism() * 2) {
             throw new RuntimeException(
                     String.format(
                             "Number of tasks to restart mismatch, expected %d, actual %d.",
-                            PARALLELISM * 2, tasks.size()));
+                            jobConfiguration.getParallelism() * 2, tasks.size()));
         }
     }
 
     @Test
     public void testCalculateRegionToRestartInBatchJobPerformance() throws Exception {
-        final List<JobVertex> jobVertices =
-                SchedulerPerformanceTestUtil.createDefaultJobVertices(
-                        PARALLELISM, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
 
-        final JobGraph jobGraph =
-                SchedulerPerformanceTestUtil.createJobGraph(
-                        jobVertices, ScheduleMode.LAZY_FROM_SOURCES, ExecutionMode.BATCH);
+        JobConfiguration jobConfiguration = JobConfiguration.BATCH;
 
-        final ExecutionGraph eg = SchedulerPerformanceTestUtil.createExecutionGraph(jobGraph);
+        createRestartPipelinedRegionFailoverStrategy(jobConfiguration);
 
-        eg.attachJobGraph(jobGraph.getVerticesSortedTopologicallyFromSources());
+        final JobVertex source = jobVertices.get(0);
+        final JobVertex sink = jobVertices.get(1);
 
-        schedulingTopology = eg.getSchedulingTopology();
+        final TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
 
-        TestingLogicalSlotBuilder slotBuilder = new TestingLogicalSlotBuilder();
+        deployTasks(executionGraph, source.getID(), slotBuilder, true);
 
-        JobVertex source = jobVertices.get(0);
-        SchedulerPerformanceTestUtil.deployTasks(eg, source.getID(), slotBuilder, false);
-        SchedulerPerformanceTestUtil.transitionTaskStatus(
-                eg, source.getID(), ExecutionState.FINISHED);
+        transitionTaskStatus(executionGraph, source.getID(), ExecutionState.FINISHED);
 
-        JobVertex sink = jobVertices.get(1);
-        SchedulerPerformanceTestUtil.deployTasks(eg, sink.getID(), slotBuilder, false);
-        SchedulerPerformanceTestUtil.transitionTaskStatus(eg, sink.getID(), ExecutionState.RUNNING);
-
-        RestartPipelinedRegionFailoverStrategy strategy =
-                new RestartPipelinedRegionFailoverStrategy(schedulingTopology);
+        deployTasks(executionGraph, sink.getID(), slotBuilder, true);
 
         final long startTime = System.nanoTime();
 
         Set<ExecutionVertexID> tasks =
                 strategy.getTasksNeedingRestart(
-                        eg.getJobVertex(source.getID()).getTaskVertices()[0].getID(),
+                        executionGraph.getJobVertex(source.getID()).getTaskVertices()[0].getID(),
                         new Exception("For test."));
 
         final long duration = (System.nanoTime() - startTime) / 1_000_000;
 
         LOG.info(String.format("Duration of failover in the streaming task is : %d ms", duration));
 
-        if (tasks.size() != PARALLELISM + 1) {
+        if (tasks.size() != jobConfiguration.getParallelism() + 1) {
             throw new RuntimeException(
                     String.format(
                             "Number of tasks to restart mismatch, expected %d, actual %d.",
-                            PARALLELISM + 1, tasks.size()));
+                            jobConfiguration.getParallelism() + 1, tasks.size()));
         }
     }
 }
