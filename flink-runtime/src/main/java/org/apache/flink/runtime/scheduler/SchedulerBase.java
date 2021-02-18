@@ -560,7 +560,8 @@ public abstract class SchedulerBase implements SchedulerNG {
         return executionGraph.getAllVertices().get(jobVertexId);
     }
 
-    protected JobGraph getJobGraph() {
+    @VisibleForTesting
+    public JobGraph getJobGraph() {
         return jobGraph;
     }
 

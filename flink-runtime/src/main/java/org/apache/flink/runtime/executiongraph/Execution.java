@@ -663,6 +663,14 @@ public class Execution
         }
     }
 
+    public TaskDeploymentDescriptor createTaskDeploymentDescriptor() throws IOException {
+        return TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, attemptNumber)
+                .createDeploymentDescriptor(
+                        assignedResource.getAllocationId(),
+                        taskRestore,
+                        producedPartitions.values());
+    }
+
     public void cancel() {
         // depending on the previous state, we go directly to cancelled (no cancel call necessary)
         // -- or to canceling (cancel call needs to be sent to the task manager)
