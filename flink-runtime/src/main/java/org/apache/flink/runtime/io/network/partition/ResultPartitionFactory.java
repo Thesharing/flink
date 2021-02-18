@@ -159,6 +159,11 @@ public class ResultPartitionFactory {
         } else if (type == ResultPartitionType.BLOCKING
                 || type == ResultPartitionType.BLOCKING_PERSISTENT) {
             if (numberOfSubpartitions >= sortShuffleMinParallelism) {
+                LOG.info(
+                        "Initializing SortMergeResultPartitions, {}, {}, {}",
+                        type.toString(),
+                        numberOfSubpartitions,
+                        sortShuffleMinParallelism);
                 partition =
                         new SortMergeResultPartition(
                                 taskNameWithSubtaskAndId,
@@ -173,6 +178,7 @@ public class ResultPartitionFactory {
                                 bufferCompressor,
                                 bufferPoolFactory);
             } else {
+                LOG.info("Initializing BoundedBlockingResultPartitions");
                 final BoundedBlockingResultPartition blockingPartition =
                         new BoundedBlockingResultPartition(
                                 taskNameWithSubtaskAndId,
@@ -213,12 +219,20 @@ public class ResultPartitionFactory {
             boolean sslEnabled) {
         int i = 0;
         try {
+            LOG.info(
+                    "Start to create {} {} BoundedBlockingSubpartitions.",
+                    subpartitions.length,
+                    blockingSubpartitionType.name());
             for (i = 0; i < subpartitions.length; i++) {
                 final File spillFile = channelManager.createChannel().getPathFile();
                 subpartitions[i] =
                         blockingSubpartitionType.create(
                                 i, parent, spillFile, networkBufferSize, sslEnabled);
             }
+            LOG.info(
+                    "Finish creating {} {} BoundedBlockingSubpartitions.",
+                    subpartitions.length,
+                    blockingSubpartitionType.name());
         } catch (IOException e) {
             // undo all the work so that a failed constructor does not leave any resources
             // in need of disposal

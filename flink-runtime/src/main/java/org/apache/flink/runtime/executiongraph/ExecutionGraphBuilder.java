@@ -179,19 +179,14 @@ public class ExecutionGraphBuilder {
 
         // topologically sort the job vertices and attach the graph to the existing one
         List<JobVertex> sortedTopology = jobGraph.getVerticesSortedTopologicallyFromSources();
-        if (log.isDebugEnabled()) {
-            log.debug(
-                    "Adding {} vertices from job graph {} ({}).",
-                    sortedTopology.size(),
-                    jobName,
-                    jobId);
-        }
+        log.info(
+                "Adding {} vertices from job graph {} ({}).",
+                sortedTopology.size(),
+                jobName,
+                jobId);
         executionGraph.attachJobGraph(sortedTopology);
 
-        if (log.isDebugEnabled()) {
-            log.debug(
-                    "Successfully created execution graph from job graph {} ({}).", jobName, jobId);
-        }
+        log.info("Successfully created execution graph from job graph {} ({}).", jobName, jobId);
 
         // configure the state checkpointing
         if (isCheckpointingEnabled(jobGraph)) {

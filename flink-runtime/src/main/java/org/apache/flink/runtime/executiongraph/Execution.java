@@ -66,6 +66,7 @@ import org.slf4j.Logger;
 
 import javax.annotation.Nullable;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -566,12 +567,23 @@ public class Execution
                         "Rescaling from unaligned checkpoint is not yet supported.");
             }
 
+            final long createDescriptorStartTime = System.nanoTime();
+
             final TaskDeploymentDescriptor deployment =
                     TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex, attemptNumber)
                             .createDeploymentDescriptor(
                                     slot.getAllocationId(),
                                     taskRestore,
                                     producedPartitions.values());
+
+            final long createDescriptorDuration =
+                    (System.nanoTime() - createDescriptorStartTime) / 1_000_000;
+
+            LOG.info(
+                    "{} ({}) created task deployment descriptor in {} ms.",
+                    getVertex().getTaskNameWithSubtaskIndex(),
+                    getAttemptId(),
+                    createDescriptorDuration);
 
             // null taskRestore to let it be GC'ed
             taskRestore = null;
@@ -582,15 +594,38 @@ public class Execution
                     vertex.getExecutionGraph().getJobMasterMainThreadExecutor();
 
             getVertex().notifyPendingDeployment(this);
+
+            final long submitTaskStartTime = System.nanoTime();
+
             // We run the submission in the future executor so that the serialization of large TDDs
             // does not block
             // the main thread and sync back to the main thread once submission is completed.
             CompletableFuture.supplyAsync(
-                            () -> taskManagerGateway.submitTask(deployment, rpcTimeout), executor)
+                            () -> {
+                                LOG.info(
+                                        "{} ({}) start to call submit task RPC",
+                                        getVertex().getTaskNameWithSubtaskIndex(),
+                                        getAttemptId());
+                                final long startRPCTime = System.nanoTime();
+                                CompletableFuture<Acknowledge> acknowledgeCompletableFuture =
+                                        taskManagerGateway.submitTask(deployment, rpcTimeout);
+                                LOG.info(
+                                        "{} ({}) finished calling submit task RPC in {} ms.",
+                                        getVertex().getTaskNameWithSubtaskIndex(),
+                                        getAttemptId(),
+                                        (System.nanoTime() - startRPCTime) / 1_000_000);
+                                return acknowledgeCompletableFuture;
+                            },
+                            executor)
                     .thenCompose(Function.identity())
                     .whenCompleteAsync(
                             (ack, failure) -> {
                                 if (failure == null) {
+                                    LOG.info(
+                                            "{} ({}) successfully submit job onto TaskManager in {} ms.",
+                                            getVertex().getTaskNameWithSubtaskIndex(),
+                                            getAttemptId(),
+                                            (System.nanoTime() - submitTaskStartTime) / 1_000_000);
                                     vertex.notifyCompletedDeployment(this);
                                 } else {
                                     if (failure instanceof TimeoutException) {
@@ -616,6 +651,13 @@ public class Execution
                             },
                             jobMasterMainThreadExecutor);
 
+            final long submitTaskDuration = (System.nanoTime() - submitTaskStartTime) / 1_000_000;
+
+            LOG.info(
+                    "{} ({}) submitTask in {} ms.",
+                    getVertex().getTaskNameWithSubtaskIndex(),
+                    getAttemptId(),
+                    submitTaskDuration);
         } catch (Throwable t) {
             markFailed(t);
         }
