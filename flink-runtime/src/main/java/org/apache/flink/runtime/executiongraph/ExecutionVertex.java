@@ -582,8 +582,8 @@ public class ExecutionVertex
         partition.markDataProduced();
     }
 
-    void cachePartitionInfo(PartitionInfo partitionInfo) {
-        getCurrentExecutionAttempt().cachePartitionInfo(partitionInfo);
+    void cachePartitionInfo(Collection<PartitionInfo> partitionInfos) {
+        getCurrentExecutionAttempt().cachePartitionInfo(partitionInfos);
     }
 
     /** Returns all blocking result partitions whose receivers can be scheduled/updated. */

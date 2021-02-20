@@ -71,6 +71,8 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -712,19 +714,10 @@ public class Execution
     }
 
     private void updatePartitionConsumers(
-            final IntermediateResultPartition partition,
-            final List<ConsumerVertexGroup> allConsumers) {
-        if (allConsumers.size() == 0) {
-            return;
-        }
-        if (allConsumers.size() > 1) {
-            fail(
-                    new IllegalStateException(
-                            "Currently, only a single consumer group per partition is supported."));
-            return;
-        }
+            final Collection<IntermediateResultPartition> partition,
+            final ConsumerVertexGroup allConsumers) {
 
-        for (ExecutionVertexID consumerVertexId : allConsumers.get(0).getVertices()) {
+        for (ExecutionVertexID consumerVertexId : allConsumers.getVertices()) {
             final ExecutionVertex consumerVertex =
                     vertex.getExecutionGraph().getVertex(consumerVertexId);
             final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
@@ -736,12 +729,15 @@ public class Execution
             // sent after switching to running
             // ----------------------------------------------------------------
             if (consumerState == DEPLOYING || consumerState == RUNNING) {
-                final PartitionInfo partitionInfo = createPartitionInfo(partition);
+                final List<PartitionInfo> partitionInfos =
+                        partition.stream()
+                                .map(Execution::createPartitionInfo)
+                                .collect(Collectors.toList());
 
                 if (consumerState == DEPLOYING) {
-                    consumerVertex.cachePartitionInfo(partitionInfo);
+                    consumerVertex.cachePartitionInfo(partitionInfos);
                 } else {
-                    consumer.sendUpdatePartitionInfoRpcCall(Collections.singleton(partitionInfo));
+                    consumer.sendUpdatePartitionInfoRpcCall(partitionInfos);
                 }
             }
         }
@@ -957,13 +953,24 @@ public class Execution
             return;
         }
 
+        final Map<ConsumerVertexGroup, Set<IntermediateResultPartition>> partitionConsumers =
+                new HashMap<>();
+
         for (IntermediateResultPartition finishedPartition : newlyFinishedResults) {
             final IntermediateResultPartition[] allPartitionsOfNewlyFinishedResults =
                     finishedPartition.getIntermediateResult().getPartitions();
 
             for (IntermediateResultPartition partition : allPartitionsOfNewlyFinishedResults) {
-                updatePartitionConsumers(partition, partition.getConsumers());
+                for (ConsumerVertexGroup consumerVertexGroup : partition.getConsumers()) {
+                    partitionConsumers
+                            .computeIfAbsent(consumerVertexGroup, group -> new HashSet<>())
+                            .add(partition);
+                }
             }
+        }
+        for (Map.Entry<ConsumerVertexGroup, Set<IntermediateResultPartition>> entry :
+                partitionConsumers.entrySet()) {
+            updatePartitionConsumers(entry.getValue(), entry.getKey());
         }
     }
 
@@ -1039,8 +1046,8 @@ public class Execution
         handlePartitionCleanup(releasePartitions, releasePartitions);
     }
 
-    void cachePartitionInfo(PartitionInfo partitionInfo) {
-        partitionInfos.add(partitionInfo);
+    void cachePartitionInfo(Collection<PartitionInfo> partitionInfos) {
+        this.partitionInfos.addAll(partitionInfos);
     }
 
     private void sendPartitionInfos() {
