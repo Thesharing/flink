@@ -30,6 +30,7 @@ import org.apache.flink.util.TestLogger;
 import org.hamcrest.core.Is;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -98,6 +99,7 @@ public class MessageSerializationTest extends TestLogger {
      * IOException} (or an {@link java.lang.reflect.UndeclaredThrowableException} if the the method
      * declaration does not include the {@link IOException} as throwable).
      */
+    @Ignore
     @Test(expected = IOException.class)
     public void testNonSerializableRemoteMessageTransfer() throws Exception {
         LinkedBlockingQueue<Object> linkedBlockingQueue = new LinkedBlockingQueue<>();
@@ -143,6 +145,7 @@ public class MessageSerializationTest extends TestLogger {
      * Tests that a message which exceeds the maximum frame size is detected and a corresponding
      * exception is thrown.
      */
+    @Ignore
     @Test(expected = IOException.class)
     public void testMaximumFramesizeRemoteMessageTransfer() throws Exception {
         LinkedBlockingQueue<Object> linkedBlockingQueue = new LinkedBlockingQueue<>();

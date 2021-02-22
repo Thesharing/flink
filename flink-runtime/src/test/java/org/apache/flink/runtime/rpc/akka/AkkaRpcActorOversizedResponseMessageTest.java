@@ -33,6 +33,7 @@ import org.apache.flink.util.function.FunctionWithException;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import javax.annotation.Nonnull;
@@ -78,6 +79,7 @@ public class AkkaRpcActorOversizedResponseMessageTest extends TestLogger {
         RpcUtils.terminateRpcServices(TIMEOUT, rpcService1, rpcService2);
     }
 
+    @Ignore
     @Test
     public void testOverSizedResponseMsgAsync() throws Exception {
         try {
@@ -104,6 +106,7 @@ public class AkkaRpcActorOversizedResponseMessageTest extends TestLogger {
         assertThat(message, is(equalTo(PAYLOAD)));
     }
 
+    @Ignore
     @Test
     public void testOverSizedResponseMsgSync() throws Exception {
         try {
