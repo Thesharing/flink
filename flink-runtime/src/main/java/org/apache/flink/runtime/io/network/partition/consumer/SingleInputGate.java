@@ -872,7 +872,7 @@ public class SingleInputGate extends IndexedInputGate {
                 if (priority && inputChannelsWithData.getNumPriorityElements() == 1) {
                     notification.notifyPriority();
                 }
-                if (inputChannelsWithData.size() == 1) {
+                if (inputChannelsWithData.getNumUnprioritizedElements() == 1) {
                     notification.notifyDataAvailable();
                 }
             }

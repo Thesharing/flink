@@ -348,7 +348,7 @@ public class UnionInputGate extends InputGate {
                 if (priority && inputGatesWithData.getNumPriorityElements() == 1) {
                     notification.notifyPriority();
                 }
-                if (inputGatesWithData.size() == 1) {
+                if (inputGatesWithData.getNumUnprioritizedElements() == 1) {
                     notification.notifyDataAvailable();
                 }
             }
@@ -367,13 +367,7 @@ public class UnionInputGate extends InputGate {
             }
         }
 
-        IndexedInputGate inputGate = inputGatesWithData.poll();
-
-        if (inputGatesWithData.isEmpty()) {
-            availabilityHelper.resetUnavailable();
-        }
-
-        return Optional.of(inputGate);
+        return Optional.of(inputGatesWithData.poll());
     }
 
     @Override

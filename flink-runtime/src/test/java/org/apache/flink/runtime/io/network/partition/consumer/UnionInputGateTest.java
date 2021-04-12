@@ -19,12 +19,15 @@
 package org.apache.flink.runtime.io.network.partition.consumer;
 
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
+import org.apache.flink.runtime.io.network.buffer.BufferBuilderTestUtils;
 import org.apache.flink.runtime.io.network.partition.NoOpResultSubpartitionView;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGateTest.TestingResultPartitionManager;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
+
+import java.io.IOException;
 
 import static org.apache.flink.runtime.io.network.partition.consumer.SingleInputGateTest.verifyBufferOrEvent;
 import static org.apache.flink.runtime.util.NettyShuffleDescriptorBuilder.createRemoteWithIdAndLocation;
@@ -121,6 +124,26 @@ public class UnionInputGateTest extends InputGateTestBase {
         inputGate2.setInputChannels(inputChannel2);
 
         testIsAvailable(new UnionInputGate(inputGate1, inputGate2), inputGate1, inputChannel1);
+    }
+
+    @Test
+    public void testAvailability() throws IOException, InterruptedException {
+        final SingleInputGate inputGate1 = createInputGate(1);
+        TestInputChannel inputChannel1 = new TestInputChannel(inputGate1, 0, false, true);
+        inputGate1.setInputChannels(inputChannel1);
+
+        final SingleInputGate inputGate2 = createInputGate(1);
+        TestInputChannel inputChannel2 = new TestInputChannel(inputGate2, 0, false, true);
+        inputGate2.setInputChannels(inputChannel2);
+
+        UnionInputGate inputGate = new UnionInputGate(inputGate1, inputGate2);
+
+        inputChannel1.read(BufferBuilderTestUtils.buildSomeBuffer(1));
+        assertTrue(inputGate.getAvailableFuture().isDone());
+        inputChannel1.read(BufferBuilderTestUtils.buildSomeBuffer(2));
+        assertTrue(inputGate.getAvailableFuture().isDone());
+        assertEquals(1, inputGate.getNext().get().getBuffer().getSize());
+        assertTrue(inputGate.getAvailableFuture().isDone());
     }
 
     @Test
